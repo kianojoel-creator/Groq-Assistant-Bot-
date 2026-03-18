@@ -1,7 +1,6 @@
 import discord
 from discord.ext import commands
 import google.generativeai as genai
-from google.generativeai.types import RequestOptions
 import os
 from flask import Flask
 import threading
@@ -17,13 +16,11 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# 2. KI Setup - ZWINGT DIE STABILE API v1
+# 2. KI Setup
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Wir erstellen eine Option, die v1beta komplett umgeht
-model = genai.GenerativeModel(
-    model_name='gemini-1.5-flash'
-)
+# Wir probieren hier die direkteste Form ohne Präfixe
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # 3. Discord Setup
 intents = discord.Intents.default()
@@ -43,11 +40,11 @@ async def on_message(message):
         return
 
     # Debug-Log
-    print(f"Nachricht: {message.content}")
+    print(f"Nachricht von {message.author}: {message.content}")
     sys.stdout.flush()
 
     if message.content.lower().startswith("!test"):
-        await message.reply("Test erfolgreich! Ich höre dich.")
+        await message.reply("Ich höre dich! Test erfolgreich.")
         return
 
     if message.content.lower().startswith("!gemini"):
@@ -58,11 +55,8 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
-                # Hier nutzen wir explizit RequestOptions, um v1beta zu vermeiden
-                response = model.generate_content(
-                    query,
-                    request_options=RequestOptions(api_version='v1')
-                )
+                # Einfacher Aufruf ohne extra Argumente
+                response = model.generate_content(query)
                 
                 if response and response.text:
                     await message.reply(response.text)
@@ -71,7 +65,8 @@ async def on_message(message):
             except Exception as e:
                 print(f"KI FEHLER: {e}")
                 sys.stdout.flush()
-                await message.reply(f"Fehler: {e}\n(Tipp: Prüfe deinen API-Key auf ai.google.dev)")
+                # Wir geben den Fehler aus, um zu sehen was passiert
+                await message.reply(f"Fehler: {e}")
         return
 
     # Automatik-Übersetzung
@@ -79,10 +74,7 @@ async def on_message(message):
         try:
             async with message.channel.typing():
                 prompt = f"Übersetze DE<->FR, sonst antworte NUR mit 'SKIP': {message.content}"
-                response = model.generate_content(
-                    prompt,
-                    request_options=RequestOptions(api_version='v1')
-                )
+                response = model.generate_content(prompt)
                 if response.text and "SKIP" not in response.text.upper():
                     await message.reply(f"🌍 {response.text}")
         except:
