@@ -16,9 +16,9 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# 2. KI Setup
+# 2. KI Setup - Hier wurde das Modell auf 'gemini-1.5-flash' aktualisiert
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-model = genai.GenerativeModel('gemini-pro')
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # 3. Discord Setup
 intents = discord.Intents.default()
