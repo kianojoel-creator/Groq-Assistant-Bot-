@@ -6,7 +6,7 @@ import threading
 import sys
 from groq import Groq
 
-# 1. Webserver für Render (Uptime)
+# 1. Webserver für Render
 app = Flask(__name__)
 @app.route('/')
 def home(): 
@@ -39,22 +39,22 @@ async def on_ready():
 async def on_message(message):
     global auto_translate, last_processed_msg
     
-    # Grund-Sperren (Ignoriere Bots & Doppelnachrichten)
     if message.author == bot.user:
         return
     
+    # Anti-Doppel-Sperre
     current_msg_fingerprint = f"{message.author.id}_{message.content}"
     if last_processed_msg == current_msg_fingerprint:
         return
     last_processed_msg = current_msg_fingerprint
 
-    # BEFEHLE (DREISPRACHIG)
+    # BEFEHLE
     if message.content.lower() in ["!info", "!help"]:
         help_text = (
             "**🌍 VHA Universal Assistant**\n\n"
-            "🇩🇪 **DE:** Automatische Übersetzung für alle Sprachen.\n"
-            "🇫🇷 **FR:** Traduction automatique pour toutes les langues.\n"
-            "🇺🇸 **EN:** Automatic translation for all languages.\n\n"
+            "🇩🇪 **DE:** KI-Power & Übersetzung.\n"
+            "🇫🇷 **FR:** Puissance IA & Traduction.\n"
+            "🇺🇸 **EN:** AI Power & Translation.\n\n"
             "**Commands:** `!ai [Text]` | `!auto on/off` | `!status`"
         )
         await message.reply(help_text)
@@ -75,26 +75,35 @@ async def on_message(message):
         await message.reply("😴 **Universal Translator OFF**")
         return
 
-    # KI CHAT (!ai)
+    # KI CHAT (!ai) - JETZT MIT INTELLIGENTER ENTSCHEIDUNG
     if message.content.lower().startswith("!ai "):
         query = message.content[4:].strip()
         async with message.channel.typing():
             try:
+                # Der Bot entscheidet hier, ob er witzig/kurz oder erklärend antwortet
                 chat_completion = client.chat.completions.create(
-                    messages=[{"role": "system", "content": "You are the VHA Assistant. Answer in the user's language."},
-                              {"role": "user", "content": query}],
+                    messages=[{
+                        "role": "system", 
+                        "content": (
+                            "You are the VHA Assistant. "
+                            "Rule 1: If the user asks for something impossible/silly (coffee, cleaning, physical tasks), "
+                            "give a short, witty answer in DE, FR, and EN with flags. "
+                            "Rule 2: If the user asks a real question, answer detailed in the user's language. "
+                            "Rule 3: Keep the personality charming and slightly clever."
+                        )},
+                        {"role": "user", "content": query}
+                    ],
                     model=MODEL_NAME,
-                    temperature=0.6
+                    temperature=0.7
                 )
                 await message.reply(chat_completion.choices[0].message.content)
             except:
                 await message.reply("❌ Error.")
         return
 
-    # 4. UNIVERSAL-ÜBERSETZUNG (NUR WENN KEIN BEFEHL & AKTIV)
+    # 4. UNIVERSAL-ÜBERSETZUNG (AUTOMATISCH)
     if auto_translate and len(message.content) > 3 and not message.content.startswith("!"):
         
-        # FILTER: Ignoriere Lacher und kurze Reaktionen (Blacklist)
         low_msg = message.content.lower().strip()
         blacklist = ["haha", "lol", "xd", "hi", "hey", "ok", "danke", "merci", "thanks", "gut", "bien", "nice"]
         if any(word == low_msg for word in blacklist):
@@ -109,21 +118,19 @@ async def on_message(message):
                 except:
                     pass
 
-            # *** NEUER SYSTEM-PROMPT MIT FRECHEN ANTWORTEN ***
             t_prompt = (
                 f"Task: Smart Translation for VHA.\n"
                 f"Input: '{message.content}'{context_info}\n\n"
                 f"Rules:\n"
-                f"1. Check if Input is a silly/impossible request (e.g., make coffee, play music like Alexa, do homework).\n"
-                f"2. IF silly: Answer precisely but with a small, witty, and charming joke in all three languages (DE, FR, EN) with flags. Do NOT provide a translation of the actual request. Use emojis. 🤖\n"
-                f"3. IF NOT silly: Translate normally. German -> French (🇩🇪->🇫🇷), French -> German (🇫🇷->🇩🇪), Others -> Both (🇩🇪+🇫🇷).\n"
-                f"4. ONLY output translation or witty answer with flags. No spam."
+                f"1. IF silly request: Witty joke in DE, FR, EN with flags. 🤖\n"
+                f"2. IF normal: Translate DE->FR, FR->DE, or Others->DE+FR.\n"
+                f"3. ONLY output flags and translation/joke. If unnecessary, 'SKIP'."
             )
             
             completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": t_prompt}],
                 model=MODEL_NAME,
-                temperature=0.2 # Etwas höher für mehr "Kreativität"
+                temperature=0.2
             )
             result = completion.choices[0].message.content
             if result and "SKIP" not in result.upper() and len(result) > 2:
@@ -136,3 +143,4 @@ if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")
     if token:
         bot.run(token)
+
