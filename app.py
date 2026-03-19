@@ -1,25 +1,25 @@
 import discord
 from discord.ext import commands
-import google.generativeai as genai
 import os
 from flask import Flask
 import threading
 import sys
-import asyncio
+from groq import Groq
 
 # 1. Webserver für Render
 app = Flask(__name__)
 @app.route('/')
 def home(): 
-    return "Bot Online"
+    return "Bot Online (Groq Edition)"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# 2. KI Setup
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-model = genai.GenerativeModel('gemini-2.0-flash-lite')
+# 2. Groq KI Setup
+# Stell sicher, dass GROQ_API_KEY in Render hinterlegt ist!
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+MODEL_NAME = "llama-3.3-70b-versatile"
 
 # 3. Discord Setup
 intents = discord.Intents.default()
@@ -30,7 +30,7 @@ auto_translate = True
 
 @bot.event
 async def on_ready():
-    print(f'--- BOT STARTET ---')
+    print(f'--- GROQ BOT ONLINE ---')
     sys.stdout.flush()
 
 @bot.event
@@ -41,56 +41,54 @@ async def on_message(message):
 
     # BEFEHLE
     if message.content.lower() in ["!info", "!help"]:
-        await message.reply("Bot ist aktiv! !auto on/off | !gemini [Frage]")
+        await message.reply("**🚀 Groq-Bot Aktiv**\nModell: Llama-3.3\n`!auto on/off` | `!gemini [Frage]`")
         return
 
     if message.content.lower() == "!auto on":
         auto_translate = True
-        await message.reply("Aktiviert!")
+        await message.reply("✅ Übersetzung an!")
         return
         
     if message.content.lower() == "!auto off":
         auto_translate = False
-        await message.reply("Deaktiviert.")
+        await message.reply("😴 Übersetzung aus.")
         return
 
-    # KI-FRAGE
+    # KI-FRAGE (Befehl bleibt gleich, damit ihr euch nicht umstellen müsst)
     if message.content.lower().startswith("!gemini"):
         query = message.content[7:].strip()
         async with message.channel.typing():
             try:
-                response = model.generate_content(query)
-                await message.reply(response.text)
+                chat_completion = client.chat.completions.create(
+                    messages=[{"role": "user", "content": query}],
+                    model=MODEL_NAME,
+                )
+                await message.reply(chat_completion.choices[0].message.content)
             except Exception as e:
-                if "429" in str(e):
-                    await message.reply("Pause: Limit erreicht.")
-                else:
-                    print(f"Fehler: {e}")
+                print(f"Fehler: {e}")
+                await message.reply("❌ Da hakt was bei Groq.")
         return
 
-    # ÜBERSETZUNG
+    # 4. ÜBERSETZUNG
     if auto_translate and len(message.content) > 3 and not message.content.startswith("!"):
         try:
-            context_msg = ""
-            if message.reference:
-                try:
-                    referenced_msg = await message.channel.fetch_message(message.reference.message_id)
-                    context_msg = f" (Kontext: {referenced_msg.content})"
-                except: pass
-
             prompt = (
                 f"Übersetze kurz DE->FR oder FR->DE. "
                 f"Antworte NUR mit 'SKIP', wenn keine Übersetzung nötig ist. "
-                f"Kontext: {context_msg} Text: {message.content}"
+                f"Text: {message.content}"
             )
             
-            response = model.generate_content(prompt)
-            if response.text and "SKIP" not in response.text.upper():
-                await message.reply(f"🌍 {response.text}")
+            completion = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=MODEL_NAME,
+            )
+            
+            result = completion.choices[0].message.content
+            if result and "SKIP" not in result.upper():
+                await message.reply(f"🌍 {result}")
 
         except Exception as e:
-            if "429" not in str(e):
-                print(f"Fehler: {e}")
+            print(f"Fehler: {e}")
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
