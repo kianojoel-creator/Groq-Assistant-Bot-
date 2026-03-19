@@ -38,92 +38,48 @@ def home():
 
 
 # ────────────────────────────────────────────────
-# ERWEITERTE SPRACHERKENNUNG (für !ai und ggf. andere Teile)
+# SPRACHERKENNUNG – deutlich robuster für Französisch
 # ────────────────────────────────────────────────
 
-def detect_language_simple(text: str) -> str | None:
-    if not text or len(text.strip()) < 4:
-        return None
+def detect_language_simple(text: str) -> str:
+    if not text or len(text.strip()) < 3:
+        return "DE"
 
     t = text.lower()
 
-    # Deutsch
-    if any(re.search(rf'\b{w}\b', t) for w in ["ist", "ich", "du", "wir", "und", "der", "die", "das", "nicht", "für", "mit", "auf"]):
-        return "DE"
-
-    # Französisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["je", "tu", "nous", "vous", "est", "suis", "c'est", "oui", "pas", "le", "la", "les"]):
+    # Französisch – deutlich toleranter / mehr typische Wörter & Muster
+    fr_patterns = [
+        r"\b(je|tu|il|elle|on|nous|vous|ils|elles)\b",
+        r"\b(suis|es|est|êtes|sommes|sont|était|étais|serai|serais)\b",
+        r"\b(c'|ce|c'est|ça|qu'|qui|quoi|comment|pourquoi|quand|où|combien)\b",
+        r"\b(oui|non|merci|désolé|bonjour|salut|pardon|excuse|voilà)\b",
+        r"\b(le|la|les|un|une|des|du|de la|de l'|au|à la|aux)\b",
+        r"(\?|!|\.{3})",  # Französisch nutzt oft ? und ! direkt nach Wörtern
+    ]
+    if any(re.search(p, t) for p in fr_patterns):
         return "FR"
 
-    # Englisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["the", "is", "you", "i", "and", "to", "in", "of", "it", "that", "this", "what", "how"]):
+    # Deutsch
+    de_patterns = [
+        r"\b(ich|du|er|sie|es|wir|ihr|sie)\b",
+        r"\b(bin|bist|ist|sind|war|waren|haben|hast|hat)\b",
+        r"\b(der|die|das|ein|eine|einen|einem|eines)\b",
+        r"\b(und|oder|aber|denn|weil|dass)\b",
+    ]
+    if any(re.search(p, t) for p in de_patterns):
+        return "DE"
+
+    # Englisch (minimal)
+    en_patterns = [
+        r"\b(i|you|he|she|it|we|they)\b",
+        r"\b(am|is|are|was|were|have|has|do|does)\b",
+        r"\b(the|a|an|this|that|these|those)\b",
+    ]
+    if any(re.search(p, t) for p in en_patterns):
         return "EN"
 
-    # Spanisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["el", "la", "los", "las", "es", "estoy", "yo", "tu", "nosotros", "si", "no", "qué"]):
-        return "ES"
-
-    # Italienisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["il", "la", "i", "gli", "le", "è", "sono", "io", "tu", "noi", "sì", "no"]):
-        return "IT"
-
-    # Portugiesisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["o", "a", "os", "as", "é", "estou", "eu", "você", "nós", "sim", "não"]):
-        return "PT"
-
-    # Niederländisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["de", "het", "een", "ik", "je", "wij", "is", "en", "van", "in", "op"]):
-        return "NL"
-
-    # Polnisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["jest", "ja", "ty", "my", "i", "w", "na", "do", "nie", "tak", "co"]):
-        return "PL"
-
-    # Russisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["я", "ты", "мы", "и", "в", "на", "не", "что", "это", "как", "где"]):
-        return "RU"
-
-    # Japanisch
-    if any(w in t for w in ["です", "ます", "は", "を", "が", "に", "の", "で", "か", "ね", "よ"]):
-        return "JA"
-
-    # Koreanisch
-    if any(w in t for w in ["이다", "하다", "이", "가", "을", "를", "에", "에서", "요", "네", "아니요"]):
-        return "KO"
-
-    # Chinesisch (vereinfacht)
-    if any(w in t for w in ["的", "是", "在", "我", "你", "他", "她", "我们", "和", "不", "什么"]):
-        return "ZH"
-
-    # Arabisch
-    if any(w in t for w in ["في", "من", "على", "إلى", "أنا", "أنت", "هو", "هي", "نحن", "لا", "ما"]):
-        return "AR"
-
-    # Hindi
-    if any(w in t for w in ["है", "मैं", "तुम", "हम", "और", "में", "से", "के", "को", "नहीं", "क्या"]):
-        return "HI"
-
-    # Türkisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["ve", "ile", "de", "da", "ben", "sen", "o", "biz", "evet", "hayır", "ne"]):
-        return "TR"
-
-    # Schwedisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["jag", "du", "vi", "är", "och", "i", "på", "det", "en", "ett"]):
-        return "SV"
-
-    # Dänisch / Norwegisch (sehr ähnlich)
-    if any(re.search(rf'\b{w}\b', t) for w in ["jeg", "du", "vi", "er", "og", "i", "på", "det", "en", "et"]):
-        return "DA/NO"
-
-    # Finnisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["minä", "sinä", "me", "on", "ja", "ei", "että", "mutta", "jos", "kun"]):
-        return "FI"
-
-    # Tschechisch
-    if any(re.search(rf'\b{w}\b', t) for w in ["je", "já", "ty", "my", "a", "v", "na", "do", "ne", "ano"]):
-        return "CS"
-
-    return None
+    # Fallback
+    return "DE"
 
 
 # ────────────────────────────────────────────────
@@ -160,18 +116,10 @@ async def cmd_help(ctx):
     embed.set_thumbnail(url=LOGO_URL)
 
     embed.add_field(
-        name="🇩🇪 Deutsch",
+        name="Befehle",
         value=(
-            "`!translate on/off`: Automatik an/aus\n"
-            "`!ai [Frage]`: KI direkt fragen"
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="🇫🇷 Français",
-        value=(
-            "`!translate on/off`: Activer/Désactiver\n"
-            "`!ai [Question]`: Poser une question"
+            "`!translate on/off` → Automatische Übersetzung an/aus\n"
+            "`!ai [Frage]` → KI antwortet in der Sprache deiner Frage"
         ),
         inline=False
     )
@@ -209,7 +157,7 @@ async def cmd_toggle_translate(ctx, status: str = None):
 async def cmd_ai(ctx, *, question: str = None):
     if not question or not question.strip():
         embed = discord.Embed(
-            description="❓ Bitte eine Frage eingeben\nBeispiel: `!ai Was ist die VHA Alliance?`",
+            description="❓ Bitte eine Frage eingeben\nBeispiel: `!ai Was ist die VHA?`  oder  `!ai Qui est la VHA ?`",
             color=discord.Color.orange()
         )
         embed.set_author(name="VHA ALLIANCE", icon_url=LOGO_URL)
@@ -225,37 +173,26 @@ async def cmd_ai(ctx, *, question: str = None):
     lang_code = detect_language_simple(question)
 
     lang_map = {
-        "DE":    ("Deutsch",       "auf Deutsch"),
-        "FR":    ("Französisch",   "auf Französisch"),
-        "EN":    ("Englisch",      "in English"),
-        "ES":    ("Spanisch",      "en español"),
-        "IT":    ("Italienisch",   "in italiano"),
-        "PT":    ("Portugiesisch", "em português"),
-        "NL":    ("Niederländisch","in het Nederlands"),
-        "PL":    ("Polnisch",      "po polsku"),
-        "RU":    ("Russisch",      "на русском языке"),
-        "JA":    ("Japanisch",     "日本語で"),
-        "KO":    ("Koreanisch",    "한국어로"),
-        "ZH":    ("Chinesisch",    "用中文"),
-        "AR":    ("Arabisch",      "بالعربية"),
-        "HI":    ("Hindi",         "हिन्दी में"),
-        "TR":    ("Türkisch",      "Türkçe"),
-        "SV":    ("Schwedisch",    "på svenska"),
-        "DA/NO": ("Skandinavisch", "på skandinavisk"),
-        "FI":    ("Finnisch",      "suomeksi"),
-        "CS":    ("Tschechisch",   "česky"),
+        "DE": ("Deutsch",    "auf Deutsch",     "Antwort auf Deutsch"),
+        "FR": ("Französisch","auf Französisch", "Réponse en français"),
+        "EN": ("Englisch",   "in English",      "Answer in English"),
     }
 
-    if lang_code in lang_map:
-        display_name, prompt_lang = lang_map[lang_code]
-    else:
-        display_name = "Deutsch (Fallback)"
-        prompt_lang = "auf Deutsch"
+    display_name, prompt_lang, footer_text = lang_map.get(lang_code, ("Deutsch", "auf Deutsch", "Antwort auf Deutsch"))
 
-    system_content = (
-        f"Du bist ein hilfreicher, präziser und freundlicher Assistent der VHA Alliance. "
-        f"Antworte klar, natürlich und **{prompt_lang}**."
-    )
+    # ─── Sehr strikter Prompt ───────────────────────────────
+    system_content = f"""Du bist ein hilfreicher, präziser und freundlicher Assistent der VHA Alliance.
+
+**WICHTIG – SPRACHE REGEL:**
+- Antworte AUSSCHLIESSLICH in der Sprache, in der die Frage gestellt wurde.
+- Wenn die Frage auf Französisch ist → antworte komplett auf Französisch.
+- Wenn die Frage auf Deutsch ist     → antworte komplett auf Deutsch.
+- Wenn die Frage auf Englisch ist    → antworte komplett auf Englisch.
+- Keine Erklärung zur Sprache.
+- Kein Code-Switching.
+- Kein Satz wie „Ich antworte auf Deutsch/Französisch“.
+- Sei natürlich und direkt in der Zielsprache.
+"""
 
     try:
         groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -266,7 +203,7 @@ async def cmd_ai(ctx, *, question: str = None):
             max_tokens=1400,
             messages=[
                 {"role": "system", "content": system_content},
-                {"role": "user",   "content": question}
+                {"role": "user",   "content": question.strip()}
             ]
         )
 
@@ -276,6 +213,7 @@ async def cmd_ai(ctx, *, question: str = None):
     except Exception as e:
         answer = f"Fehler bei der KI-Anfrage:\n{type(e).__name__}: {str(e)}"
         color = discord.Color.red()
+        footer_text = "Fehler"
 
     embed = discord.Embed(
         title="VHA KI • Antwort",
@@ -286,7 +224,7 @@ async def cmd_ai(ctx, *, question: str = None):
     embed.set_thumbnail(url=LOGO_URL)
     embed.add_field(name="Deine Frage", value=f"→ {question[:1000]}", inline=False)
     embed.set_footer(
-        text=f"VHA • Groq • {GROQ_MODEL} • Antwort auf {display_name}",
+        text=f"VHA • Groq • {GROQ_MODEL} • {footer_text}",
         icon_url=LOGO_URL
     )
 
@@ -294,7 +232,7 @@ async def cmd_ai(ctx, *, question: str = None):
 
 
 # ────────────────────────────────────────────────
-# AUTOMATISCHE ÜBERSETZUNG + REPLY-SUPPORT
+# AUTOMATISCHE ÜBERSETZUNG
 # ────────────────────────────────────────────────
 
 @bot.event
@@ -324,35 +262,17 @@ async def on_message(message: discord.Message):
         return
 
     targets = ["DE", "FR"]
-    ref_lang = None
-    ref_text = ""
-
-    if message.reference and message.reference.message_id:
-        try:
-            ref_msg = await message.channel.fetch_message(message.reference.message_id)
-            ref_text = ref_msg.content.strip()
-            if ref_text and len(ref_text) > 3:
-                ref_lang = detect_language_simple(ref_text)
-                if not ref_lang:
-                    ref_lang = "OTHER"
-        except:
-            pass
-
-    if ref_lang == "OTHER":
-        targets.append("ORIGINAL")
-
     lines = []
 
     for tgt in targets:
         if tgt == "DE":
-            prompt = "Übersetze NUR ins Deutsche. Nur die Übersetzung. Kein Kommentar."
+            prompt = "Übersetze NUR ins Deutsche. Nur die Übersetzung. Kein Kommentar. Kein Hinweis."
             flag = "🇩🇪"
         elif tgt == "FR":
-            prompt = "Übersetze NUR ins Französische. Nur die Übersetzung. Kein Kommentar."
+            prompt = "Übersetze NUR ins Französische. Nur die Übersetzung. Kein Kommentar. Kein Hinweis."
             flag = "🇫🇷"
         else:
-            prompt = "Übersetze NUR in die Sprache des Originaltexts. Gib NUR die Übersetzung aus. Kein Kommentar."
-            flag = "🌐"
+            continue
 
         try:
             groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
