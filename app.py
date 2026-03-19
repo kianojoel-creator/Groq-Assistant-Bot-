@@ -42,29 +42,38 @@ def home():
 # ────────────────────────────────────────────────
 
 def detect_language_simple(text: str) -> str:
-    if not text:
+    if not text or len(text.strip()) < 2:
         return "UNKNOWN"
 
     t = text.lower().strip()
+    t_space = " " + t + " "
 
-    # Sehr kurze & typische Chat-Wörter (aus deinen Screenshots)
-    short_fr = {"oui", "non", "ok", "lol", "xd", "mdr", "je", "tu", "il", "elle", "ça", "si", "merci", "salut", "voilà", "c'est", "t'es", "peux", "être", "laisse", "gérer"}
-    short_de = {"ja", "nein", "ok", "lol", "xd", "haha", "danke", "bitte", "klar", "genau", "jo", "ey", "np", "kk", "bin", "grad", "mach", "teste", "bossin"}
+    # Sehr breite deutsche Indikatoren (typischer Alltags-Chat)
+    de_markers = [
+        "ich ", "du ", "er ", "sie ", "es ", "wir ", "ihr ", "bin ", "bist ", "ist ", "sind ",
+        "hab ", "hast ", "hat ", "habe ", "haben ", "mach ", "mache ", "gemacht ", "versuch ",
+        "gut ", "gut ", "nacht ", "schlaf ", "bock ", "kein ", "mehr ", "jetzt ", "auch ", "nur ",
+        "danke ", "bitte ", "klar ", "genau ", "ja ", "nein ", "ok ", "lol ", "xd ", "haha "
+    ]
 
-    if any(word in t for word in short_fr) or t in short_fr:
+    # Französische Marker (deine bestehenden + mehr Chat-Slang)
+    fr_markers = [
+        "je ", "tu ", "il ", "elle ", "on ", "nous ", "vous ", "est ", "suis ", "c'est ", "ça ",
+        "qui ", "quoi ", "comment ", "pourquoi ", "merci ", "salut ", "bonjour ", "désolé ",
+        "voilà ", "oui ", "non ", "mdr ", "ptdr ", "t'es ", "peux ", "être ", "laisse ", "gérer "
+    ]
+
+    # Kurze Wörter direkt prüfen
+    if any(m in t for m in fr_markers):
         return "FR"
-    if any(word in t for word in short_de) or t in short_de:
+    if any(m in t for m in de_markers):
         return "DE"
 
-    # Normale Erkennung für längere Sätze
-    t_space = " " + t + " "
-    if any(ind in t_space for ind in [" je ", " tu ", " est ", " c'est ", " ça ", " qui ", " quoi ", " comment ", " pourquoi ", " pardon ", " désolé ", " t'es "]):
-        return "FR"
-    if any(ind in t_space for ind in [" ich ", " du ", " ist ", " bin ", " der ", " die ", " das ", " ein ", " eine ", " und ", " oder ", " wie geht"]):
+    # Fallback: Wenn gar nichts passt → trotzdem als DE versuchen (dein Server ist mehrheitlich DE)
+    if len(t.split()) <= 8:  # kurze Sätze → eher Deutsch annehmen
         return "DE"
 
     return "UNKNOWN"
-
 
 # ────────────────────────────────────────────────
 # BOT SETUP
