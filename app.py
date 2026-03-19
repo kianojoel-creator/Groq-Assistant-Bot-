@@ -6,15 +6,13 @@ import threading
 from groq import Groq
 import re
 
-# 1. Webserver für Render
 app = Flask(__name__)
 @app.route('/')
-def home(): return "VHA Translator - Reply Logic 2026"
+def home(): return "VHA Translator - Context Master 2.0"
 
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 
-# 2. KI Setup
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 MODEL_NAME = "llama-3.3-70b-versatile"
 
@@ -25,17 +23,17 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 processed_messages = set()
 
 def detect_language_manually(text):
-    """Prüft auf typische Wörter für DE/FR"""
     t = text.lower()
-    if any(re.search(rf'\b{w}\b', t) for w in ["c'est", "oui", "je", "suis", "pas", "le", "la", "et", "que", "pour"]):
+    # Französisch
+    if any(re.search(rf'\b{w}\b', t) for w in ["c'est", "oui", "je", "suis", "pas", "le", "la", "et", "que", "pour", "dans", "est"]):
         return "FR"
-    if any(re.search(rf'\b{w}\b', t) for w in ["ist", "ja", "ich", "bin", "nicht", "das", "die", "und", "dass", "für"]):
+    # Deutsch
+    if any(re.search(rf'\b{w}\b', t) for w in ["ist", "ja", "ich", "bin", "nicht", "das", "die", "und", "dass", "für", "mit", "auch"]):
         return "DE"
+    # Englisch (nur zur Erkennung, nicht zum Sperren)
+    if any(re.search(rf'\b{w}\b', t) for w in ["is", "the", "and", "not", "with", "have", "you", "this"]):
+        return "EN"
     return "UNKNOWN"
-
-@bot.event
-async def on_ready():
-    print(f'--- {bot.user.name} MIT REPLY-LOGIK ONLINE ---')
 
 @bot.event
 async def on_message(message):
@@ -45,7 +43,7 @@ async def on_message(message):
     processed_messages.add(message.id)
     if len(processed_messages) > 150: processed_messages.clear()
 
-    # !ai Befehl
+    # !ai Befehl (unverändert)
     if message.content.lower().startswith("!ai "):
         query = message.content[4:].strip()
         async with message.channel.typing():
@@ -59,47 +57,63 @@ async def on_message(message):
             except: pass
         return
 
-    # ÜBERSETZUNG MIT REPLY-CHECK
+    # ÜBERSETZUNG MIT EXTREMER KONTEXT-TREUE
     text = message.content.strip()
     if not text.startswith("!") and len(text) > 2:
         if text.lower() in ["haha", "lol", "ok", "merci", "danke"]: return
 
-        # Prüfe, ob es eine Antwort auf eine andere Sprache ist
-        extra_info = ""
+        # Kontext holen
+        replied_text = ""
+        is_reply = False
         if message.reference and message.reference.message_id:
             try:
                 replied_to = await message.channel.fetch_message(message.reference.message_id)
-                orig_lang = detect_language_manually(replied_to.content)
-                if orig_lang == "UNKNOWN":
-                    extra_info = f"Zusätzlich: Übersetze auch zurück in die Sprache der Nachricht, auf die geantwortet wurde: '{replied_to.content[:50]}...'"
+                replied_text = replied_to.content
+                is_reply = True
             except: pass
 
         input_lang = detect_language_manually(text)
         
-        # System-Anweisung zusammenbauen
-        if extra_info:
-            sys_msg = f"Du bist ein All-in-One Übersetzer. {extra_info}. Gib IMMER auch DE (🇩🇪) und FR (🇫🇷) aus. Gib NUR die Übersetzungen mit Flaggen aus."
+        # Den Befehl für die KI bauen
+        if is_reply:
+            sys_msg = (
+                f"Der User antwortet auf diese Nachricht: '{replied_text}'. "
+                "1. Erkenne die Sprache dieser Originalnachricht. "
+                "2. Übersetze die neue Antwort des Users ('{text}') in: "
+                "- Deutsch (🇩🇪) "
+                "- Französisch (🇫🇷) "
+                "- UND in die exakte Sprache der Originalnachricht (falls diese nicht DE oder FR ist). "
+                "Regel: Gib NUR die Übersetzungen mit Flaggen aus. KEIN Englisch, außer es wurde explizit danach gefragt oder die Originalnachricht war Englisch."
+            )
         elif input_lang == "FR":
-            sys_msg = "Übersetze NUR in Deutsch (🇩🇪). Gib nur Text + Flagge aus."
+            sys_msg = "Übersetze NUR ins Deutsche (🇩🇪). Keine anderen Sprachen."
         elif input_lang == "DE":
-            sys_msg = "Übersetze NUR in Französisch (🇫🇷). Gib nur Text + Flagge aus."
+            sys_msg = "Übersetze NUR ins Französische (🇫🇷). Keine anderen Sprachen."
+        elif input_lang == "EN":
+            sys_msg = "Der Input ist Englisch. Übersetze in Deutsch (🇩🇪) UND Französisch (🇫🇷)."
         else:
             sys_msg = "Übersetze in Deutsch (🇩🇪) UND Französisch (🇫🇷). Gib nur die Übersetzungen aus."
 
         try:
             completion = client.chat.completions.create(
-                messages=[{"role": "system", "content": sys_msg},
-                          {"role": "user", "content": text}],
+                messages=[{"role": "system", "content": "Du bist ein präziser Allianz-Übersetzer. Kein Smalltalk, keine unnötigen Sprachen."},
+                          {"role": "user", "content": sys_msg + f"\n\nText zum Übersetzen: {text}"}],
                 model=MODEL_NAME, temperature=0.0
             )
             result = completion.choices[0].message.content.strip()
             
-            # Filter gegen Nachplappern
-            if text.lower() in result.lower() and len(result) > len(text) + 5:
-                result = result.replace(text, "").replace(text.lower(), "").strip()
+            # Strenger Filter gegen doppelte Sätze (Echos)
+            lines = result.split('\n')
+            final_lines = []
+            for line in lines:
+                clean_line = line.replace("🇩🇪", "").replace("🇫🇷", "").replace("🇬🇧", "").strip().lower()
+                # Wenn die Zeile fast identisch mit deinem Input ist -> weg damit
+                if text.lower() not in clean_line or len(clean_line) > len(text.lower()) + 2:
+                    final_lines.append(line)
             
-            if result:
-                await message.reply(result)
+            output = "\n".join(final_lines).strip()
+            if output:
+                await message.reply(output)
         except: pass
 
 if __name__ == "__main__":
