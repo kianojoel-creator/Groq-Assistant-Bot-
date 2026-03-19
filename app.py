@@ -1,107 +1,269 @@
 import discord
 from discord.ext import commands
 import os
-from flask import Flask
-import threading
-from groq import Groq
 import re
+import threading
+from flask import Flask
+from groq import Groq
 
-# ==========================================================
-# DEIN LOGO-LINK
-LOGO_URL = "https://cdn.discordapp.com/attachments/1484252260614537247/1484253018533662740/Picsart_26-03-18_13-55-24-994.png?ex=69bd8dd7&is=69bc3c57&hm=de6fea399dd30f97d2a14e1515c9e7f91d81d0d9ea111f13e0757d42eb12a0e5&" 
-# ==========================================================
+# ────────────────────────────────────────────────
+# KONFIGURATION
+# ────────────────────────────────────────────────
+
+LOGO_URL = (
+    "https://cdn.discordapp.com/attachments/1484252260614537247/"
+    "1484253018533662740/Picsart_26-03-18_13-55-24-994.png"
+    "?ex=69bd8dd7&is=69bc3c57&hm=de6fea399dd30f97d2a14e1515c9e7f91d81d0d9ea111f13e0757d42eb12a0e5&"
+)
+
+GROQ_MODEL = "llama-3.3-70b-versatile"
+
+# Wörter zur einfachen Spracherkennung
+FR_INDICATORS = {
+    "c'est", "ce", "est", "suis", "es", "sommes", "êtes", "sont",
+    "je", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles",
+    "oui", "non", "pas", "ne", "le", "la", "les", "un", "une", "des",
+    "et", "ou", "mais", "que", "qui", "pour", "dans", "sur", "avec", "à"
+}
+
+DE_INDICATORS = {
+    "ist", "bin", "bist", "sind", "seid", "ich", "du", "er", "sie", "es",
+    "wir", "ihr", "Sie", "ja", "nein", "nicht", "kein", "der", "die", "das",
+    "ein", "eine", "und", "oder", "aber", "dass", "für", "mit", "auf", "in", "zu"
+}
+
+# ────────────────────────────────────────────────
+# GLOBALS & FLASK KEEP-ALIVE
+# ────────────────────────────────────────────────
 
 app = Flask(__name__)
-@app.route('/')
-def home(): return "VHA Translator - Clean Edition"
+processed_messages = set()
+translate_active = True
+
 
 def run_flask():
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-MODEL_NAME = "llama-3.3-70b-versatile"
+
+@app.route("/")
+def home():
+    return "VHA Translator • Online"
+
+
+# ────────────────────────────────────────────────
+# SPRACHERKENNUNG
+# ────────────────────────────────────────────────
+
+def detect_language_simple(text: str) -> str | None:
+    if not text.strip():
+        return None
+
+    t = text.lower()
+    fr_score = sum(1 for w in FR_INDICATORS if re.search(rf'\b{w}\b', t))
+    de_score = sum(1 for w in DE_INDICATORS if re.search(rf'\b{w}\b', t))
+
+    if fr_score > de_score + 1:
+        return "FR"
+    if de_score > fr_score + 1:
+        return "DE"
+    return None
+
+
+# ────────────────────────────────────────────────
+# DISCORD BOT SETUP
+# ────────────────────────────────────────────────
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-translate_active = True
-processed_messages = set()
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+    help_command=None,
+    case_insensitive=True
+)
 
-def detect_language_manually(text):
-    t = text.lower()
-    if any(re.search(rf'\b{w}\b', t) for w in ["c'est", "oui", "je", "suis", "pas", "le", "la", "et", "que", "pour", "est"]):
-        return "FR"
-    if any(re.search(rf'\b{w}\b', t) for w in ["ist", "ja", "ich", "bin", "nicht", "das", "die", "und", "dass", "für", "mit"]):
-        return "DE"
-    return "UNKNOWN"
 
 @bot.event
 async def on_ready():
-    print(f'--- {bot.user.name} ONLINE ---')
+    print(f"→ {bot.user}  •  ONLINE  •  {discord.utils.utcnow():%Y-%m-%d %H:%M UTC}")
+
+
+# ────────────────────────────────────────────────
+# BEFEHLE
+# ────────────────────────────────────────────────
 
 @bot.command(name="help")
-async def custom_help(ctx):
-    embed = discord.Embed(title="VHA Translator - Hilfe", color=discord.Color.blue())
+async def cmd_help(ctx):
+    embed = discord.Embed(
+        title="VHA Translator – Hilfe",
+        color=discord.Color.blue(),
+        description=(
+            "**Verfügbare Befehle**\n\n"
+            "`!translate on` / `!translate off`   → Automatische Übersetzung DE↔FR\n"
+            "`!ai [deine Frage]`                  → Direkte Frage an die KI\n\n"
+        )
+    )
     embed.set_author(name="VHA ALLIANCE", icon_url=LOGO_URL)
     embed.set_thumbnail(url=LOGO_URL)
-    embed.add_field(name="🇩🇪 Deutsch", value="`!translate on/off`: Automatik an/aus\n`!ai [Frage]`: KI direkt fragen", inline=False)
-    embed.add_field(name="🇫🇷 Français", value="`!translate on/off`: Activer/Désactiver\n`!ai [Question]`: Poser une question", inline=False)
-    embed.set_footer(text="VHA - Powering Communication", icon_url=LOGO_URL)
+    embed.set_footer(text="VHA • Powering Communication", icon_url=LOGO_URL)
     await ctx.send(embed=embed)
 
+
 @bot.command(name="translate")
-async def toggle_translate(ctx, status: str):
+async def cmd_toggle_translate(ctx, status: str = None):
     global translate_active
-    translate_active = (status.lower() == "on")
-    
-    # Einheitliches Design für ON und OFF
+
+    if status is None:
+        translate_active = not translate_active
+    else:
+        translate_active = status.lower() in ("on", "an", "ein", "true", "1", "aktiviert", "active")
+
     color = discord.Color.green() if translate_active else discord.Color.red()
-    status_de = "Übersetzung Aktiviert" if translate_active else "Übersetzung Deaktiviert"
-    status_fr = "Traduction Activée" if translate_active else "Traduction Désactivée"
-    
+
     embed = discord.Embed(
-        description=f"**{status_de}**\n*{status_fr}*", 
+        title="Übersetzungs-Modus",
+        description=(
+            f"**{'Aktiviert' if translate_active else 'Deaktiviert'}**  🇩🇪\n"
+            f"**{'Activée' if translate_active else 'Désactivée'}**  🇫🇷"
+        ),
         color=color
     )
     embed.set_author(name="VHA System", icon_url=LOGO_URL)
     await ctx.send(embed=embed)
 
-@bot.event
-async def on_message(message):
-    global processed_messages, translate_active
-    if message.author == bot.user or message.id in processed_messages: return
-    if message.content.startswith("!"):
-        await bot.process_commands(message)
+
+@bot.command(name="ai")
+@commands.cooldown(1, 10, commands.BucketType.user)
+async def cmd_ai(ctx, *, question: str = None):
+    if not question or not question.strip():
+        embed = discord.Embed(
+            description="❓ Bitte eine Frage eingeben\nBeispiel: `!ai Was ist die VHA Alliance?`",
+            color=discord.Color.orange()
+        )
+        embed.set_author(name="VHA ALLIANCE", icon_url=LOGO_URL)
+        await ctx.send(embed=embed)
         return
-    
-    text = message.content.strip()
-    if not translate_active or len(text) <= 2: return
-    if text.lower() in ["haha", "lol", "ok", "merci", "danke", "ja", "oui"]: return
 
-    processed_messages.add(message.id)
-    if len(processed_messages) > 150: processed_messages.clear()
-
-    input_lang = detect_language_manually(text)
-    
-    if input_lang == "FR":
-        sys_msg = "Übersetze NUR ins Deutsche (🇩🇪). Keine Kommentare."
-    elif input_lang == "DE":
-        sys_msg = "Übersetze NUR ins Französische (🇫🇷). Keine Kommentare."
-    else:
-        return # Andere Sprachen ohne Reply ignorieren
+    thinking = await ctx.send(embed=discord.Embed(
+        description="**Denke nach …** 🧠",
+        color=discord.Color.blurple()
+    ))
 
     try:
-        completion = client.chat.completions.create(
-            messages=[{"role": "system", "content": "Du bist ein stummer Übersetzer."},
-                      {"role": "user", "content": f"{sys_msg}\n\nText: {text}"}],
-            model=MODEL_NAME, temperature=0.0
+        groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+        completion = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            temperature=0.75,
+            max_tokens=1400,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Du bist ein hilfreicher, präziser und freundlicher Assistent der VHA Alliance. "
+                        "Antworte klar, natürlich und **immer auf Deutsch**, außer der User fragt explizit in einer anderen Sprache. "
+                        "Halte Antworten informativ, aber nicht übermäßig langatmig."
+                    )
+                },
+                {"role": "user", "content": question}
+            ]
         )
-        output = completion.choices[0].message.content.strip()
-        if output and output.lower() != text.lower():
-            await message.reply(output)
-    except: pass
+
+        answer = completion.choices[0].message.content.strip()
+        color = discord.Color.from_rgb(88, 101, 242)  # Discord-Blau
+
+    except Exception as e:
+        answer = (
+            "Leider ist bei der KI-Anfrage etwas schiefgelaufen.\n"
+            f"**Fehler:** {type(e).__name__}: {str(e)}"
+        )
+        color = discord.Color.red()
+
+    embed = discord.Embed(
+        title="VHA KI • Antwort",
+        description=answer[:4000],
+        color=color
+    )
+    embed.set_author(name="VHA ALLIANCE", icon_url=LOGO_URL)
+    embed.set_thumbnail(url=LOGO_URL)
+    embed.add_field(name="Deine Frage", value=f"→ {question[:1000]}", inline=False)
+    embed.set_footer(text="VHA • Groq • llama-3.3-70b-versatile", icon_url=LOGO_URL)
+
+    await thinking.edit(embed=embed)
+
+
+# ────────────────────────────────────────────────
+# AUTOMATISCHE ÜBERSETZUNG
+# ────────────────────────────────────────────────
+
+@bot.event
+async def on_message(message: discord.Message):
+    global processed_messages, translate_active
+
+    if message.author.bot:
+        return
+
+    if message.id in processed_messages:
+        return
+
+    processed_messages.add(message.id)
+    if len(processed_messages) > 200:
+        processed_messages.clear()
+
+    if message.content.startswith(bot.command_prefix):
+        await bot.process_commands(message)
+        return
+
+    content = message.content.strip()
+    if not translate_active or len(content) < 3:
+        return
+
+    if content.lower() in {"ok", "lol", "xd", "haha", "oui", "ja", "nein", "danke", "merci"}:
+        return
+
+    lang = detect_language_simple(content)
+    if lang is None:
+        return
+
+    if lang == "FR":
+        system_prompt = "Übersetze NUR ins Deutsche. Nur die Übersetzung ausgeben. Keine Einleitung, kein Kommentar, keine Erklärung."
+    else:  # DE
+        system_prompt = "Übersetze NUR ins Französische. Nur die Übersetzung ausgeben. Keine Einleitung, kein Kommentar, keine Erklärung."
+
+    try:
+        groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        completion = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            temperature=0.0,
+            max_tokens=1024,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": content}
+            ]
+        )
+
+        translation = completion.choices[0].message.content.strip()
+
+        if translation and translation.lower() != content.lower():
+            await message.reply(translation, mention_author=False)
+
+    except Exception as e:
+        print(f"Übersetzungsfehler: {e.__class__.__name__} – {e}")
+
+
+# ────────────────────────────────────────────────
+# START
+# ────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    threading.Thread(target=run_flask, daemon=True).start()
-    bot.run(os.getenv("DISCORD_TOKEN"))
+    flask_thread = threading.Thread(target=run_flask, daemon=True, name="Flask-KeepAlive")
+    flask_thread.start()
+
+    token = os.getenv("DISCORD_TOKEN")
+    if not token:
+        print("Fehler: Umgebungsvariable DISCORD_TOKEN nicht gefunden!")
+        exit(1)
+
+    bot.run(token)
