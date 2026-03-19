@@ -18,66 +18,66 @@ def run_flask():
 
 # 2. KI Setup
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-
-# Wir probieren hier die direkteste Form ohne Präfixe
-model = genai.GenerativeModel('gemini-2.5-flash')
+model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
 # 3. Discord Setup
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Variable für den Status (Standardmäßig an)
+auto_translate = True
+
 @bot.event
 async def on_ready():
-    print("----------------------------")
-    print(f"BOT ONLINE: {bot.user.name}")
-    print("----------------------------")
+    print(f'--- BOT IST LIVE ---')
+    print(f'Eingeloggt als: {bot.user.name}')
     sys.stdout.flush()
 
 @bot.event
 async def on_message(message):
+    global auto_translate
     if message.author == bot.user:
         return
 
-    # Debug-Log
-    print(f"Nachricht von {message.author}: {message.content}")
-    sys.stdout.flush()
-
-    if message.content.lower().startswith("!test"):
-        await message.reply("Ich höre dich! Test erfolgreich.")
+    # BEFEHL: AUTO-ÜBERSETZUNG AN
+    if message.content.lower() == "!auto on":
+        auto_translate = True
+        await message.reply("✅ **Übersetzung aktiviert!** Ich bin da und helfe euch beim Chatten.")
         return
 
+    # BEFEHL: AUTO-ÜBERSETZUNG AUS
+    if message.content.lower() == "!auto off":
+        auto_translate = False
+        await message.reply("😴 **Übersetzung deaktiviert.** Ich bin jetzt im Standby. Sag `!auto on`, wenn du mich wieder brauchst!")
+        return
+
+    # Direkte KI-Anfrage mit !gemini (funktioniert immer)
     if message.content.lower().startswith("!gemini"):
         query = message.content[7:].strip()
-        if not query:
-            await message.reply("Frag mich etwas!")
-            return
-
         async with message.channel.typing():
             try:
-                # Einfacher Aufruf ohne extra Argumente
                 response = model.generate_content(query)
-                
-                if response and response.text:
-                    await message.reply(response.text)
-                else:
-                    await message.reply("KI hat keine Antwort geliefert.")
+                await message.reply(response.text)
             except Exception as e:
-                print(f"KI FEHLER: {e}")
-                sys.stdout.flush()
-                # Wir geben den Fehler aus, um zu sehen was passiert
                 await message.reply(f"Fehler: {e}")
         return
 
-    # Automatik-Übersetzung
-    if len(message.content) > 3 and not message.content.startswith("!"):
+    # INTELLIGENTE AUTO-ÜBERSETZUNG (nur wenn auto_translate auf True ist)
+    if auto_translate and len(message.content) > 2 and not message.content.startswith("!"):
         try:
+            prompt = (
+                f"Handle als Übersetzer. Wenn der Text DEUTSCH ist, übersetze ihn ins FRANZÖSISCHE. "
+                f"Wenn der Text FRANZÖSISCH ist, übersetze ihn ins DEUTSCHE. "
+                f"Wenn es eine andere Sprache ist oder kein Sinn ergibt, antworte NUR mit 'SKIP'. "
+                f"Hier ist der Text: {message.content}"
+            )
+            
             async with message.channel.typing():
-                prompt = f"Übersetze DE<->FR, sonst antworte NUR mit 'SKIP': {message.content}"
                 response = model.generate_content(prompt)
                 if response.text and "SKIP" not in response.text.upper():
-                    await message.reply(f"🌍 {response.text}")
-        except:
+                    await message.reply(f"🔄 {response.text}")
+        except Exception:
             pass
 
 if __name__ == "__main__":
@@ -85,5 +85,3 @@ if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")
     if token:
         bot.run(token)
-    else:
-        print("FEHLER: DISCORD_TOKEN fehlt!")
