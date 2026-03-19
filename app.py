@@ -10,7 +10,7 @@ from groq import Groq
 app = Flask(__name__)
 @app.route('/')
 def home(): 
-    return "Groq Assistant Online"
+    return "VHA Assistant Online"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -29,10 +29,10 @@ auto_translate = True
 
 @bot.event
 async def on_ready():
-    # Setzt den Status in Discord
-    activity = discord.Game(name="Llama-3.3 AI", type=3)
+    # Setzt den Status in Discord (International)
+    activity = discord.Game(name="VHA Guard | !info", type=3)
     await bot.change_presence(status=discord.Status.online, activity=activity)
-    print(f'--- {bot.user.name} IST ONLINE ---')
+    print(f'--- {bot.user.name} (VHA) IS ONLINE ---')
     sys.stdout.flush()
 
 @bot.event
@@ -41,54 +41,54 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # HILFE / INFO
+    # HILFE / INFO (DREISPRACHIG)
     if message.content.lower() in ["!info", "!help"]:
         help_text = (
-            "**🚀 Groq Assistant ist bereit!**\n"
-            "Modell: `Llama-3.3-70B` (High Speed)\n\n"
-            "**Befehle:**\n"
-            "`!ai [Frage]` - Frag mich alles\n"
-            "`!prompt [Thema]` - Erstellt Flux-Prompts für dich\n"
-            "`!auto on/off` - Automatische Übersetzung DE<->FR\n"
-            "`!status` - Zeigt meinen aktuellen Zustand"
+            "**🚀 VHA Assistant**\n\n"
+            "🇩🇪 **DE:** Ich unterstütze diesen Server mit KI-Power.\n"
+            "🇫🇷 **FR:** J'assiste ce serveur avec la puissance de l'IA.\n"
+            "🇺🇸 **EN:** I assist this server with AI power.\n\n"
+            "**Commands / Commandes:**\n"
+            "`!ai [Text]` - AI Chat (Llama-3.3)\n"
+            "`!auto on/off` - Auto Translate DE ↔ FR\n"
+            "`!status` - System Status"
         )
         await message.reply(help_text)
         return
 
-    # STATUS & STEUERUNG
+    # STATUS (DREISPRACHIG)
     if message.content.lower() == "!status":
-        state = "AKTIV ✅" if auto_translate else "PAUSIERT 😴"
-        await message.reply(f"Bot läuft flüssig. Übersetzung ist: {state}")
+        state_de = "AKTIV ✅" if auto_translate else "PAUSIERT 😴"
+        state_fr = "ACTIF ✅" if auto_translate else "EN PAUSE 😴"
+        state_en = "ACTIVE ✅" if auto_translate else "PAUSED 😴"
+        
+        status_msg = (
+            f"🇩🇪 System: {state_de}\n"
+            f"🇫🇷 Système: {state_fr}\n"
+            f"🇺🇸 System: {state_en}"
+        )
+        await message.reply(status_msg)
         return
 
+    # ÜBERSETZUNG AN/AUS (DREISPRACHIG ANGEPASST)
     if message.content.lower() == "!auto on":
         auto_translate = True
-        await message.reply("✅ Übersetzung aktiviert!")
+        msg = (
+            "✅ **Übersetzung aktiviert!**\n"
+            "🇫🇷 Traduction activée !\n"
+            "🇺🇸 Translation activated!"
+        )
+        await message.reply(msg)
         return
         
     if message.content.lower() == "!auto off":
         auto_translate = False
-        await message.reply("😴 Übersetzung deaktiviert.")
-        return
-
-    # FLUX PROMPT GENERATOR
-    if message.content.lower().startswith("!prompt "):
-        topic = message.content[8:].strip()
-        async with message.channel.typing():
-            try:
-                p_prompt = (
-                    f"Erstelle einen hochdetaillierten Bild-Prompt für die KI 'Flux.1'. "
-                    f"Thema: {topic}. Nutze Fachbegriffe wie 'photorealistic, 8k, highly detailed, "
-                    f"cinematic lighting'. Antworte NUR mit dem englischen Prompt."
-                )
-                completion = client.chat.completions.create(
-                    messages=[{"role": "user", "content": p_prompt}],
-                    model=MODEL_NAME,
-                    temperature=0.7
-                )
-                await message.reply(f"🎨 **Flux-Prompt:**\n```{completion.choices[0].message.content}```")
-            except Exception as e:
-                await message.reply("❌ Fehler beim Prompt-Design.")
+        msg = (
+            "😴 **Übersetzung pausiert.**\n"
+            "🇫🇷 Traduction en pause.\n"
+            "🇺🇸 Translation paused."
+        )
+        await message.reply(msg)
         return
 
     # ALLGEMEINE KI ANFRAGE
@@ -96,25 +96,25 @@ async def on_message(message):
         query = message.content[4:].strip()
         async with message.channel.typing():
             try:
+                # KI antwortet in der Sprache des Users
                 chat_completion = client.chat.completions.create(
-                    messages=[{"role": "system", "content": "Antworte präzise und hilfreich auf Deutsch."},
+                    messages=[{"role": "system", "content": "You are the VHA Assistant. Answer precisely in the language the user is speaking (German, French, or English)."},
                               {"role": "user", "content": query}],
                     model=MODEL_NAME,
                     temperature=0.6
                 )
                 await message.reply(chat_completion.choices[0].message.content)
             except Exception as e:
-                print(f"Fehler: {e}")
-                await message.reply("❌ Groq-API Error.")
+                print(f"Error: {e}")
+                await message.reply("❌ System-Error.")
         return
 
-    # 4. AUTOMATISCHE ÜBERSETZUNG (Mit Flaggen)
+    # 4. AUTOMATISCHE ÜBERSETZUNG (DE <-> FR)
     if auto_translate and len(message.content) > 3 and not message.content.startswith("!"):
         try:
             t_prompt = (
-                f"Übersetze kurz: Wenn Text Französisch -> Deutsch. Wenn Text Deutsch -> Französisch. "
-                f"Antworte NUR mit der Übersetzung und beginne IMMER mit der passenden Flagge (🇩🇪 oder 🇫🇷). "
-                f"Antworte NUR mit 'SKIP', wenn keine Übersetzung nötig ist. "
+                f"Translate briefly: French -> German (start with 🇩🇪) or German -> French (start with 🇫🇷). "
+                f"Answer ONLY with the translation. Answer 'SKIP' if no translation is needed. "
                 f"Text: {message.content}"
             )
             completion = client.chat.completions.create(
