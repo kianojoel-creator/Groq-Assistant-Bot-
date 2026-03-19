@@ -173,7 +173,7 @@ Keine Sprachhinweise. Natürlich und direkt."""
 
 
 # ────────────────────────────────────────────────
-# AUTOMATISCHE ÜBERSETZUNG – NUR EINE RICHTUNG + toleranter
+# AUTOMATISCHE ÜBERSETZUNG – NUR EINE RICHTUNG + sehr tolerant bei kurzen Texten
 # ────────────────────────────────────────────────
 
 @bot.event
@@ -197,12 +197,12 @@ async def on_message(message: discord.Message):
         return
 
     content = message.content.strip()
-    if len(content) < 2:  # fast nichts mehr ignorieren
+    if len(content) < 2:           # fast nichts mehr ignorieren
         return
 
     low = content.lower()
 
-    # Sehr reduzierte Ignore-Liste – nur extrem kurze Spam
+    # Sehr reduzierte Ignore-Liste – nur wirklich extrem kurze Spam
     if low in {"?", "!", "xd", "lol", "ok"} and len(low) <= 3:
         return
 
@@ -247,3 +247,28 @@ async def on_message(message: discord.Message):
             return
 
         # Sehr toleranter Kopie-Check
+        orig_clean = re.sub(r'[^a-zA-Z0-9äöüÄÖÜßéèêàâùûîôç ]', '', content.lower())
+        trans_clean = re.sub(r'[^a-zA-Z0-9äöüÄÖÜßéèêàâùûîôç ]', '', translation.lower())
+
+        if len(trans_clean) < 4 or abs(len(trans_clean) - len(orig_clean)) < 4:
+            return  # nur bei fast identischer Länge und extrem kurz skippen
+
+        await message.reply(f"{flag} {translation}", mention_author=False)
+
+    except Exception as e:
+        print(f"Übersetzungsfehler: {type(e).__name__} - {str(e)}")
+
+
+# ────────────────────────────────────────────────
+# START
+# ────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    threading.Thread(target=run_flask, daemon=True, name="Flask-KeepAlive").start()
+
+    token = os.getenv("DISCORD_TOKEN")
+    if not token:
+        print("DISCORD_TOKEN fehlt!")
+        exit(1)
+
+    bot.run(token)
