@@ -42,35 +42,61 @@ def home():
 # ────────────────────────────────────────────────
 
 def detect_language_simple(text: str) -> str:
+def detect_language_simple(text: str) -> str:
+    """
+    Sehr tolerante Erkennung für Discord-Chat (kurze Sätze + Slang)
+    """
     if not text or len(text.strip()) < 2:
         return "UNKNOWN"
 
     t = text.lower().strip()
     t_space = " " + t + " "
 
-    # Sehr breite deutsche Indikatoren (typischer Alltags-Chat)
+    # ──────────────────────────────
+    # Französisch – deutlich breiter (Chat-Slang + typische kurze Antworten)
+    # ──────────────────────────────
+    fr_markers = [
+        # Pronomen & Hilfsverben
+        "je ", "j'", "tu ", "il ", "elle ", "on ", "nous ", "vous ", "ils ", "elles ",
+        "suis ", "es ", "est ", "êtes ", "sommes ", "sont ", "était ", "serai ",
+        # Typische Chat-Wörter / Slang
+        "c'est ", "c ", "ça ", "sa ", "si ", "ouais ", "nan ", "non ", "mdr ", "ptdr ", "ahah ",
+        "merci ", "stp ", "svp ", "désolé ", "deso ", "pardon ", "voilà ", "voila ", "oklm ",
+        "tkt ", "tranquille ", "grave ", "ouf ", "wesh ", "frr ", "frère ", "mec ", "meuf ",
+        "vas-y ", "vas ", "vasy ", "viens ", "viens-y ", "t'es ", "t'es où ", "t'es la ",
+        "quoi ", "comment ", "pourquoi ", "quand ", "où ", "combien ", "combien tu ",
+        "salut ", "yo ", "hey ", "coucou ", "bjr ", "bsoir ", "bientot ", "bientôt ",
+        # Sehr häufige kurze Antworten
+        "oui ", "nan ", "ok ", "kk ", "d'accord ", "dacc ", "nop ", "nope ", "bien ", "nickel "
+    ]
+
+    # ──────────────────────────────
+    # Deutsch – bleibt ähnlich breit wie vorher
+    # ──────────────────────────────
     de_markers = [
         "ich ", "du ", "er ", "sie ", "es ", "wir ", "ihr ", "bin ", "bist ", "ist ", "sind ",
         "hab ", "hast ", "hat ", "habe ", "haben ", "mach ", "mache ", "gemacht ", "versuch ",
-        "gut ", "gut ", "nacht ", "schlaf ", "bock ", "kein ", "mehr ", "jetzt ", "auch ", "nur ",
-        "danke ", "bitte ", "klar ", "genau ", "ja ", "nein ", "ok ", "lol ", "xd ", "haha "
+        "gut ", "nacht ", "schlaf ", "bock ", "kein ", "mehr ", "jetzt ", "auch ", "nur ",
+        "danke ", "bitte ", "klar ", "genau ", "jo ", "ey ", "np ", "kk ", "lol ", "xd ", "haha "
     ]
 
-    # Französische Marker (deine bestehenden + mehr Chat-Slang)
-    fr_markers = [
-        "je ", "tu ", "il ", "elle ", "on ", "nous ", "vous ", "est ", "suis ", "c'est ", "ça ",
-        "qui ", "quoi ", "comment ", "pourquoi ", "merci ", "salut ", "bonjour ", "désolé ",
-        "voilà ", "oui ", "non ", "mdr ", "ptdr ", "t'es ", "peux ", "être ", "laisse ", "gérer "
-    ]
+    # Kurze Sätze → direkt prüfen
+    words = t.split()
+    if len(words) <= 6:
+        if any(w in t for w in fr_markers):
+            return "FR"
+        if any(w in t for w in de_markers):
+            return "DE"
 
-    # Kurze Wörter direkt prüfen
-    if any(m in t for m in fr_markers):
+    # Längere Sätze → Wortgrenzen-Check
+    if any(m in t_space for m in fr_markers):
         return "FR"
-    if any(m in t for m in de_markers):
+    if any(m in t_space for m in de_markers):
         return "DE"
 
-    # Fallback: Wenn gar nichts passt → trotzdem als DE versuchen (dein Server ist mehrheitlich DE)
-    if len(t.split()) <= 8:  # kurze Sätze → eher Deutsch annehmen
+    # Ultimativer Fallback: kurze Nachrichten (< 8 Wörter) als Deutsch annehmen
+    # (weil euer Server mehrheitlich deutschsprachig ist)
+    if len(words) <= 8:
         return "DE"
 
     return "UNKNOWN"
