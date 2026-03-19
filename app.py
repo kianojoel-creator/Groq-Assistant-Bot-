@@ -8,7 +8,7 @@ from groq import Groq
 # 1. Webserver für Render
 app = Flask(__name__)
 @app.route('/')
-def home(): return "VHA Universal Translator - Clean Reset"
+def home(): return "VHA Universal Translator - Fixed Logic"
 
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
@@ -27,65 +27,54 @@ processed_messages = set()
 @bot.event
 async def on_ready():
     await bot.change_presence(activity=discord.Game(name="Übersetzer aktiv 🌍"))
-    print(f'--- {bot.user.name} RESET ERFOLGREICH ---')
+    print(f'--- {bot.user.name} LOGIK-FIX BEREIT ---')
 
 @bot.event
 async def on_message(message):
     global processed_messages
     
-    # 1. Sicherheits-Checks
     if message.author == bot.user or message.id in processed_messages:
         return
     
-    # ID speichern gegen Echo-Effekt
     processed_messages.add(message.id)
     if len(processed_messages) > 100: processed_messages.clear()
 
-    # 2. KI-BEFEHL (!ai) -> Hier darf er (bei Bedarf) witzig sein
+    # KI-BEFEHL (!ai)
     if message.content.lower().startswith("!ai "):
         query = message.content[4:].strip()
         async with message.channel.typing():
             try:
                 chat_res = client.chat.completions.create(
-                    messages=[{
-                        "role": "system", 
-                        "content": (
-                            "Du bist der VHA Assistent. "
-                            "Regel 1: Wenn die Frage ernst ist, antworte hilfreich in der Sprache des Users. "
-                            "Regel 2: Wenn die Frage offensichtlich Quatsch ist (Kaffee kochen, Alexa-Sprüche), "
-                            "antworte kurz und witzig in DE, FR und EN mit Flaggen."
-                        )},
-                        {"role": "user", "content": query}
-                    ],
+                    messages=[{"role": "system", "content": "Antworte hilfreich in der Sprache des Users. Bei Quatsch-Anfragen antworte kurz und witzig dreisprachig mit Flaggen."},
+                              {"role": "user", "content": query}],
                     model=MODEL_NAME, temperature=0.7
                 )
                 await message.reply(chat_res.choices[0].message.content)
             except: pass
         return
 
-    # 3. AUTOMATISCHE ÜBERSETZUNG -> Streng, Sauber, Seriös
+    # AUTOMATISCHE ÜBERSETZUNG (STRENG & EINFACH)
     if not message.content.startswith("!") and len(message.content) > 3:
-        # Filter für Spam
         low_msg = message.content.lower().strip()
         if low_msg in ["haha", "lol", "xd", "ok", "merci", "danke"]:
             return
 
         try:
+            # Hier ist die neue, extrem scharfe Logik
             t_prompt = (
                 "Du bist ein 1:1 Übersetzer. Gib NUR die Übersetzung aus.\n"
-                "Format: [Flagge] [Text]\n"
-                "Regeln:\n"
-                "- Deutsch -> Französisch (🇫🇷)\n"
-                "- Französisch -> Deutsch (🇩🇪)\n"
-                "- Andere -> Beides (🇩🇪 & 🇫🇷)\n"
-                "- KEINE Kommentare, KEINE Einleitung (wie 'DE:'), KEIN Labern.\n"
-                f"Text zum Übersetzen: {message.content}"
+                "STRENGE LOGIK:\n"
+                "1. Wenn der Text DEUTSCH ist -> Gib NUR die französische Übersetzung mit 🇫🇷 aus.\n"
+                "2. Wenn der Text FRANZÖSISCH ist -> Gib NUR die deutsche Übersetzung mit 🇩🇪 aus.\n"
+                "3. Wenn der Text weder DE noch FR ist -> Gib beides aus (🇩🇪 & 🇫🇷).\n"
+                "4. Wiederhole NIEMALS den Text in der Sprache, in der er geschrieben wurde.\n"
+                "5. KEINE Kommentare, KEIN 'DE:', KEIN 'FR:'.\n"
+                f"Text: {message.content}"
             )
             
             completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": t_prompt}],
-                model=MODEL_NAME, 
-                temperature=0.0 # Maximale Sachlichkeit
+                model=MODEL_NAME, temperature=0.0
             )
             result = completion.choices[0].message.content
             
