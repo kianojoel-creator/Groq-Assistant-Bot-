@@ -32,7 +32,7 @@ DE_INDICATORS = {
 }
 
 # ────────────────────────────────────────────────
-# GLOBALS & FLASK
+# GLOBALS & FLASK KEEP-ALIVE
 # ────────────────────────────────────────────────
 
 app = Flask(__name__)
@@ -68,7 +68,7 @@ def detect_language_simple(text: str) -> str | None:
 
 
 # ────────────────────────────────────────────────
-# BOT SETUP
+# DISCORD BOT SETUP
 # ────────────────────────────────────────────────
 
 intents = discord.Intents.default()
@@ -95,16 +95,29 @@ async def on_ready():
 async def cmd_help(ctx):
     embed = discord.Embed(
         title="VHA Translator – Hilfe",
-        color=discord.Color.blue(),
-        description=(
-            "**Befehle**\n\n"
-            "`!translate on` / `!translate off`   → Automatische Übersetzung\n"
-            "`!ai [Frage]`                        → Direkte KI-Anfrage\n\n"
-        )
+        color=discord.Color.blue()
     )
     embed.set_author(name="VHA ALLIANCE", icon_url=LOGO_URL)
     embed.set_thumbnail(url=LOGO_URL)
-    embed.set_footer(text="VHA • Powering Communication", icon_url=LOGO_URL)
+
+    embed.add_field(
+        name="🇩🇪 Deutsch",
+        value=(
+            "`!translate on/off`: Automatik an/aus\n"
+            "`!ai [Frage]`: KI direkt fragen"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🇫🇷 Français",
+        value=(
+            "`!translate on/off`: Activer/Désactiver\n"
+            "`!ai [Question]`: Poser une question"
+        ),
+        inline=False
+    )
+
+    embed.set_footer(text="VHA - Powering Communication", icon_url=LOGO_URL)
     await ctx.send(embed=embed)
 
 
@@ -119,20 +132,21 @@ async def cmd_toggle_translate(ctx, status: str = None):
 
     color = discord.Color.green() if translate_active else discord.Color.red()
 
+    de_status = "Aktiviert" if translate_active else "Deaktiviert"
+    fr_status = "Activée" if translate_active else "Désactivée"
+
     embed = discord.Embed(
-        title="Übersetzungs-Modus",
-        description=(
-            f"**{'Aktiviert' if translate_active else 'Deaktiviert'}**  🇩🇪\n"
-            f"**{'Activée' if translate_active else 'Désactivée'}**  🇫🇷"
-        ),
+        title="VHA System",
+        description=f"**Übersetzung {de_status}**\n**Traduction {fr_status}**",
         color=color
     )
     embed.set_author(name="VHA System", icon_url=LOGO_URL)
+
     await ctx.send(embed=embed)
 
 
 @bot.command(name="ai")
-@commands.cooldown(1, 10, commands.BucketType.user)
+@commands.cooldown(1, 12, commands.BucketType.user)
 async def cmd_ai(ctx, *, question: str = None):
     if not question or not question.strip():
         embed = discord.Embed(
@@ -150,6 +164,7 @@ async def cmd_ai(ctx, *, question: str = None):
 
     try:
         groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
         completion = groq_client.chat.completions.create(
             model=GROQ_MODEL,
             temperature=0.75,
@@ -165,8 +180,9 @@ async def cmd_ai(ctx, *, question: str = None):
                 {"role": "user", "content": question}
             ]
         )
+
         answer = completion.choices[0].message.content.strip()
-        color = discord.Color.from_rgb(88, 101, 242)
+        color = discord.Color.from_rgb(88, 101, 242)  # Discord-Blau
 
     except Exception as e:
         answer = f"Fehler bei der KI-Anfrage:\n{type(e).__name__}: {str(e)}"
@@ -186,7 +202,7 @@ async def cmd_ai(ctx, *, question: str = None):
 
 
 # ────────────────────────────────────────────────
-# HAUPT-ÜBERSETZUNGS-LOGIK (mit Reply-Support)
+# AUTOMATISCHE ÜBERSETZUNG + REPLY-SUPPORT
 # ────────────────────────────────────────────────
 
 @bot.event
@@ -216,20 +232,19 @@ async def on_message(message: discord.Message):
         return
 
     # ────────────────────────────────
-    # Welche Sprachen sollen wir ausgeben?
+    # Welche Sprachen ausgeben?
     # ────────────────────────────────
     targets = ["DE", "FR"]
     ref_lang = None
     ref_text = ""
 
-    # Reply → Sprache der referenzierten Nachricht ermitteln
     if message.reference and message.reference.message_id:
         try:
             ref_msg = await message.channel.fetch_message(message.reference.message_id)
             ref_text = ref_msg.content.strip()
             if ref_text and len(ref_text) > 3:
                 ref_lang = detect_language_simple(ref_text)
-                if not ref_lang:  # nicht DE/FR → als "fremd" behandeln
+                if not ref_lang:
                     ref_lang = "OTHER"
         except:
             pass
@@ -240,7 +255,7 @@ async def on_message(message: discord.Message):
     # ────────────────────────────────
     # Übersetzungen erzeugen
     # ────────────────────────────────
-    translations = {}
+    lines = []
 
     for tgt in targets:
         if tgt == "DE":
@@ -249,9 +264,9 @@ async def on_message(message: discord.Message):
         elif tgt == "FR":
             prompt = "Übersetze NUR ins Französische. Nur die Übersetzung. Kein Kommentar."
             flag = "🇫🇷"
-        else:  # ORIGINAL
+        else:
             prompt = (
-                "Übersetze NUR in die Sprache des folgenden Originaltexts. "
+                "Übersetze NUR in die Sprache des Originaltexts. "
                 "Gib NUR die Übersetzung aus. Kein Kommentar, kein Sprachhinweis."
             )
             flag = "🌐"
@@ -260,39 +275,22 @@ async def on_message(message: discord.Message):
             groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
             completion = groq_client.chat.completions.create(
                 model=GROQ_MODEL,
-                temperature=0.1,
-                max_tokens=1100,
+                temperature=0.0,
+                max_tokens=900,
                 messages=[
                     {"role": "system", "content": prompt},
-                    {"role": "user", "content": f"Kontext (nicht übersetzen):\n{ref_text}\n\nText:\n{content}"}
+                    {"role": "user", "content": content}
                 ]
             )
-            translated = completion.choices[0].message.content.strip()
-
-            if translated and translated.lower() != content.lower() and translated.lower() != ref_text.lower():
-                translations[tgt] = (flag, translated)
-
+            tr = completion.choices[0].message.content.strip()
+            if tr and tr.lower() != content.lower():
+                lines.append(f"{flag} {tr}")
         except Exception as e:
             print(f"Übersetzungsfehler {tgt}: {e.__class__.__name__}")
             continue
 
-    # ────────────────────────────────
-    # Ergebnis senden
-    # ────────────────────────────────
-    if translations:
-        embed = discord.Embed(color=discord.Color.from_rgb(88, 101, 242))
-
-        for lang, (flag, text) in translations.items():
-            embed.add_field(
-                name=f"{flag} Übersetzung",
-                value=text[:1010] + (" …" if len(text) > 1010 else ""),
-                inline=False
-            )
-
-        if "ORIGINAL" in translations:
-            embed.set_footer(text="→ Auch in die Sprache der Originalnachricht übersetzt")
-
-        await message.reply(embed=embed, mention_author=False)
+    if lines:
+        await message.reply("\n".join(lines), mention_author=False)
 
 
 # ────────────────────────────────────────────────
@@ -304,7 +302,7 @@ if __name__ == "__main__":
 
     token = os.getenv("DISCORD_TOKEN")
     if not token:
-        print("DISCORD_TOKEN fehlt in den Umgebungsvariablen!")
+        print("DISCORD_TOKEN fehlt!")
         exit(1)
 
     bot.run(token)
