@@ -1,6 +1,7 @@
 discord.py
-google-generativeai
 flask
+groq
+
 
 
 
