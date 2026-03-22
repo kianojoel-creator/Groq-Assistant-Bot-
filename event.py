@@ -312,6 +312,34 @@ class EventCog(commands.Cog):
             seconds = result["seconds"]
             display_time = result["display_time"]
 
+            # Event-Name auf FR und PT übersetzen
+            await thinking.edit(content="🔍 **Übersetze Event-Name...** / **Traduction...** / **Traduzindo...**")
+            try:
+                import asyncio as _asyncio
+                name_fr, name_pt = await _asyncio.gather(
+                    self.groq_call(
+                        model="llama-3.3-70b-versatile",
+                        temperature=0.1,
+                        max_tokens=50,
+                        messages=[
+                            {"role": "system", "content": "Translate this game event name to French. Output ONLY the translation, nothing else."},
+                            {"role": "user", "content": event_name}
+                        ]
+                    ),
+                    self.groq_call(
+                        model="llama-3.3-70b-versatile",
+                        temperature=0.1,
+                        max_tokens=50,
+                        messages=[
+                            {"role": "system", "content": "Translate this game event name to Brazilian Portuguese. Output ONLY the translation, nothing else."},
+                            {"role": "user", "content": event_name}
+                        ]
+                    )
+                )
+            except Exception:
+                name_fr = event_name
+                name_pt = event_name
+
             # Vorwarnung berechnen
             warning_sec = get_warning_seconds(seconds)
             warning_text = f"({format_duration(warning_sec)} vorher)" if warning_sec else ""
@@ -320,7 +348,9 @@ class EventCog(commands.Cog):
                 title=f"⏰ Event erkannt / Événement détecté / Evento detectado",
                 color=0xF39C12
             )
-            embed.add_field(name="📍 Event", value=f"**{event_name}**", inline=False)
+            embed.add_field(name="🇩🇪 Event", value=f"**{event_name}**", inline=True)
+            embed.add_field(name="🇫🇷 Événement", value=f"**{name_fr}**", inline=True)
+            embed.add_field(name="🇧🇷 Evento", value=f"**{name_pt}**", inline=True)
             embed.add_field(name="🇩🇪 Startet in", value=f"**{display_time}** {warning_text}", inline=True)
             embed.add_field(name="🇫🇷 Commence dans", value=f"**{display_time}**", inline=True)
             embed.add_field(name="🇧🇷 Começa em", value=f"**{display_time}**", inline=True)
