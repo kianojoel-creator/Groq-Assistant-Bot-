@@ -130,13 +130,16 @@ class TimerCog(commands.Cog):
             for t in to_warn:
                 try:
                     time_left = format_duration(int(t["end_timestamp"] - now))
+                    name_de = t["event"]
+                    name_fr = t.get("event_fr", name_de)
+                    name_pt = t.get("event_pt", name_de)
                     embed = discord.Embed(
-                        title=f"⚠️ Vorwarnung / Avertissement / Aviso • {t['event']}",
+                        title=f"⚠️ Vorwarnung / Avertissement / Aviso • {name_de}",
                         color=0xF39C12
                     )
-                    embed.add_field(name="🇩🇪 Startet in", value=f"**{time_left}**! Macht euch bereit! ⚔️", inline=False)
-                    embed.add_field(name="🇫🇷 Commence dans", value=f"**{time_left}** ! Préparez-vous ! ⚔️", inline=False)
-                    embed.add_field(name="🇧🇷 Começa em", value=f"**{time_left}**! Preparem-se! ⚔️", inline=False)
+                    embed.add_field(name="🇩🇪 Startet in", value=f"**{name_de}** in **{time_left}**! Macht euch bereit! ⚔️", inline=False)
+                    embed.add_field(name="🇫🇷 Commence dans", value=f"**{name_fr}** dans **{time_left}** ! Préparez-vous ! ⚔️", inline=False)
+                    embed.add_field(name="🇧🇷 Começa em", value=f"**{name_pt}** em **{time_left}**! Preparem-se! ⚔️", inline=False)
                     embed.set_footer(text=f"Gesetzt von / Défini par / Definido por {t['author']}")
 
                     for channel_id in ANNOUNCEMENT_CHANNELS:
@@ -154,13 +157,16 @@ class TimerCog(commands.Cog):
             # Finale Erinnerungen senden und Timer löschen
             for t in fired:
                 try:
+                    name_de = t["event"]
+                    name_fr = t.get("event_fr", name_de)
+                    name_pt = t.get("event_pt", name_de)
                     embed = discord.Embed(
-                        title=f"⏰ Erinnerung / Rappel / Lembrete • {t['event']}",
+                        title=f"⏰ Erinnerung / Rappel / Lembrete • {name_de}",
                         color=0xE74C3C
                     )
-                    embed.add_field(name="🇩🇪 Deutsch", value=f"**{t['event']}** beginnt jetzt! ⚔️", inline=False)
-                    embed.add_field(name="🇫🇷 Français", value=f"**{t['event']}** commence maintenant ! ⚔️", inline=False)
-                    embed.add_field(name="🇧🇷 Português", value=f"**{t['event']}** começa agora! ⚔️", inline=False)
+                    embed.add_field(name="🇩🇪 Deutsch", value=f"**{name_de}** beginnt jetzt! ⚔️", inline=False)
+                    embed.add_field(name="🇫🇷 Français", value=f"**{name_fr}** commence maintenant ! ⚔️", inline=False)
+                    embed.add_field(name="🇧🇷 Português", value=f"**{name_pt}** começa agora! ⚔️", inline=False)
                     embed.set_footer(text=f"Gesetzt von / Défini par / Definido por {t['author']}")
 
                     for channel_id in ANNOUNCEMENT_CHANNELS:
@@ -253,9 +259,13 @@ class TimerCog(commands.Cog):
         embed = discord.Embed(title="⏱️ Aktive Timer / Minuteurs actifs / Lembretes ativos", color=0x3498DB)
         for t in timers:
             remaining = int(t["end_timestamp"] - now)
+            name_de = t["event"]
+            name_fr = t.get("event_fr", name_de)
+            name_pt = t.get("event_pt", name_de)
             embed.add_field(
-                name=f"📍 {t['event']}",
-                value=f"⏳ Noch / Reste / Falta: **{format_duration(remaining)}**\n👤 {t['author']}",
+                name=f"🇩🇪 {name_de} / 🇫🇷 {name_fr} / 🇧🇷 {name_pt}",
+                value=f"⏳ Noch / Reste / Falta: **{format_duration(remaining)}**
+👤 {t['author']}",
                 inline=False
             )
         embed.set_footer(text=f"Gesamt / Total: {len(timers)}")

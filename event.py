@@ -187,6 +187,8 @@ class EventTimerView(discord.ui.View):
 
             col.insert_one({
                 "event": self.event_name,
+                "event_fr": getattr(self, "name_fr", self.event_name),
+                "event_pt": getattr(self, "name_pt", self.event_name),
                 "duration_seconds": self.seconds,
                 "end_timestamp": end_timestamp,
                 "channel_id": interaction.channel.id,
@@ -357,6 +359,8 @@ class EventCog(commands.Cog):
             embed.set_footer(text="Timer setzen? / Définir un minuteur? / Definir lembrete?")
 
             view = EventTimerView(self.bot, event_name, seconds, display_time, ctx.author)
+            view.name_fr = name_fr
+            view.name_pt = name_pt
             msg = await thinking.edit(content=None, embed=embed, view=view)
             view.message = thinking
 
