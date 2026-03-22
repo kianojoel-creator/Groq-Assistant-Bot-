@@ -264,8 +264,7 @@ class TimerCog(commands.Cog):
             name_pt = t.get("event_pt", name_de)
             embed.add_field(
                 name=f"🇩🇪 {name_de} / 🇫🇷 {name_fr} / 🇧🇷 {name_pt}",
-                value=f"⏳ Noch / Reste / Falta: **{format_duration(remaining)}**
-👤 {t['author']}",
+                value=f"⏳ Noch / Reste / Falta: **{format_duration(remaining)}**\n👤 {t['author']}",
                 inline=False
             )
         embed.set_footer(text=f"Gesamt / Total: {len(timers)}")
