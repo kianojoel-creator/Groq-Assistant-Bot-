@@ -9,6 +9,7 @@ from discord.ext import commands
 from pymongo import MongoClient
 import os
 import logging
+from log import add_log
 
 log = logging.getLogger("VHABot.Spieler")
 
@@ -134,6 +135,7 @@ class SpielerCog(commands.Cog):
         embed = discord.Embed(title="✅ Spieler hinzugefügt / Joueur ajouté / Jogador adicionado", color=0x57F287)
         embed.add_field(name="👤 Name", value=name, inline=True)
         embed.add_field(name="🆔 ID", value=spieler_id, inline=True)
+        add_log("Spieler hinzugefügt", ctx.author.display_name, f"{name} (ID: {spieler_id})")
         embed.set_footer(text=f"Hinzugefügt von / Ajouté par / Adicionado por {ctx.author.display_name}")
         await ctx.send(embed=embed)
 
@@ -168,6 +170,7 @@ class SpielerCog(commands.Cog):
             title=f"🗑️ Spieler gelöscht / Joueur supprimé / Jogador apagado • {name}",
             color=0xED4245
         )
+        add_log("Spieler gelöscht", ctx.author.display_name, name)
         embed.set_footer(text=f"Gelöscht von / Supprimé par / Apagado por {ctx.author.display_name}")
         await ctx.send(embed=embed)
 

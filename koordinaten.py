@@ -9,6 +9,7 @@ from discord.ext import commands
 from pymongo import MongoClient
 import os
 import logging
+from log import add_log
 
 log = logging.getLogger("VHABot.Koordinaten")
 
@@ -140,6 +141,7 @@ class KoordinatenCog(commands.Cog):
 
         embed = discord.Embed(title="✅ Koordinate hinzugefügt / Coordonnée ajoutée / Coordenada adicionada", color=0x57F287)
         embed.add_field(name=name, value=f"R:{r}, X:{x}, Y:{y}", inline=False)
+        add_log("Koordinate hinzugefügt", ctx.author.display_name, f"{name} R:{r} X:{x} Y:{y}")
         embed.set_footer(text=f"Hinzugefügt von / Ajouté par / Adicionado por {ctx.author.display_name}")
         await ctx.send(embed=embed)
 
@@ -176,6 +178,7 @@ class KoordinatenCog(commands.Cog):
             title=f"🗑️ Koordinate gelöscht / Coordonnée supprimée / Coordenada apagada • {name}",
             color=0xED4245
         )
+        add_log("Koordinate gelöscht", ctx.author.display_name, name)
         embed.set_footer(text=f"Gelöscht von / Supprimé par / Apagado por {ctx.author.display_name}")
         await ctx.send(embed=embed)
 

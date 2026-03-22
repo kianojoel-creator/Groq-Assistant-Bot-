@@ -279,6 +279,11 @@ async def on_ready():
     except Exception as e:
         errors.append(f"❌ event: {e}")
 
+    try:
+        await bot.load_extension("log")
+    except Exception as e:
+        errors.append(f"❌ log: {e}")
+
     log.info(f"→ {bot.user}  •  ONLINE  •  {discord.utils.utcnow():%Y-%m-%d %H:%M UTC}")
 
     if BOT_LOG_CHANNEL_ID:
@@ -293,7 +298,8 @@ async def on_ready():
                     "🔧 timer.py • geladen\n"
                     "🔧 bilduebersetzer.py • geladen\n"
                     "🔧 spieler.py • geladen\n"
-                    "🔧 event.py • geladen"
+                    "🔧 event.py • geladen\n"
+                    "🔧 log.py • geladen"
                 )
             await channel.send(msg)
 

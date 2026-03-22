@@ -238,6 +238,7 @@ class TimerCog(commands.Cog):
         embed.add_field(name="🇫🇷 Rappel dans", value=f"**{format_duration(seconds)}**", inline=True)
         embed.add_field(name="🇧🇷 Lembrete em", value=f"**{format_duration(seconds)}**", inline=True)
         embed.add_field(name="📍 Event", value=event, inline=False)
+        add_log("Timer gesetzt", ctx.author.display_name, f"{event} ({format_duration(seconds)})")
         embed.set_footer(text=f"Gesetzt von / Défini par / Definido por {ctx.author.display_name}")
         await ctx.send(embed=embed)
 
@@ -296,6 +297,7 @@ class TimerCog(commands.Cog):
             title=f"🗑️ Timer gelöscht / Minuteur supprimé / Lembrete apagado • {event}",
             color=0xED4245
         )
+        add_log("Timer gelöscht", ctx.author.display_name, event)
         embed.set_footer(text=f"Gelöscht von / Supprimé par / Apagado por {ctx.author.display_name}")
         await ctx.send(embed=embed)
 
