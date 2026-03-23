@@ -139,10 +139,8 @@ class BildUebersetzerCog(commands.Cog):
             embed = discord.Embed(
                 title="❓ Kein Bild gefunden / Aucune image / Nenhuma imagem",
                 description=(
-                    "Antworte auf ein Bild und tippe `!übersetze`
-"
-                    "Réponds à une image et tape `!traduire`
-"
+                    "Antworte auf ein Bild und tippe `!übersetze`\n"
+                    "Réponds à une image et tape `!traduire`\n"
                     "Responda a uma imagem e digite `!traduzir`"
                 ),
                 color=0xF39C12
@@ -218,10 +216,8 @@ class BildUebersetzerCog(commands.Cog):
             embed = discord.Embed(
                 title="⚠️ Übersetzung fehlgeschlagen",
                 description=(
-                    "Bild konnte nicht verarbeitet werden – versuch es nochmal!
-"
-                    "Impossible de traiter l'image – réessaie!
-"
+                    "Bild konnte nicht verarbeitet werden – versuch es nochmal!\n"
+                    "Impossible de traiter l'image – réessaie!\n"
                     "Não foi possível processar a imagem – tente novamente!"
                 ),
                 color=0xED4245
