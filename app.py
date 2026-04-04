@@ -41,7 +41,7 @@ BOT_LOG_CHANNEL_ID = 1484252260614537247
 # GLOBALS & FLASK
 # ────────────────────────────────────────────────
 
-app = Flask(__name__)
+
 
 processed_messages     = deque(maxlen=500)
 processed_messages_set = set()
