@@ -50,6 +50,32 @@ translate_active = True
 
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
+# ────────────────────────────────────────────────
+# FLASK KEEP-ALIVE FÜR RENDER
+# ────────────────────────────────────────────────
+
+app = Flask(__name__)
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=False,
+        use_reloader=False
+    )
+
+
+@app.route("/")
+def home():
+    return "VHA Translator • Online", 200
+
+
+@app.route("/ping")
+def ping():
+    """Wird von UptimeRobot und Render aufgerufen"""
+    return "pong", 200
+
 # Semaphore: max. 4 gleichzeitige Groq-Calls
 groq_semaphore = asyncio.Semaphore(4)
 
@@ -59,20 +85,6 @@ TRANSLATION_COOLDOWN = 3.0
 # Token-Zähler für den Tag
 token_counter = {"prompt": 0, "completion": 0, "total": 0}
 
-
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-
-
-@app.route("/")
-def home():
-    return "VHA Translator • Online"
-
-@app.route("/ping")
-def ping():
-    """Wird von UptimeRobot und Render aufgerufen"""
-    return "pong", 200
 
 
 # ────────────────────────────────────────────────
