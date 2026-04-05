@@ -303,6 +303,11 @@ async def on_ready():
         errors.append(f"❌ log: {e}")
 
     try:
+        await bot.load_extension("raumsprachen")
+    except Exception as e:
+        errors.append(f"❌ raumsprachen: {e}")
+
+    try:
         await bot.load_extension("sprachen")
     except Exception as e:
         errors.append(f"❌ sprachen: {e}")
@@ -328,6 +333,7 @@ async def on_ready():
                     "🔧 spieler.py • geladen\n"
                     "🔧 event.py • geladen\n"
                     "🔧 log.py • geladen\n"
+                    "🔧 raumsprachen.py • geladen\n"
                     "🔧 sprachen.py • geladen\n"
                     "🔧 svs.py • geladen"
                 )
@@ -580,7 +586,7 @@ async def on_message(message: discord.Message):
         ref = message.reference.resolved
         if isinstance(ref, discord.Message) and not ref.author.bot:
             ref_lang = await detect_language_llm(ref.content.strip())
-            if ref_lang not in ("DE", "FR", "PT", "OTHER"):
+            if ref_lang not in ("DE", "FR", "PT", "EN", "OTHER"):
                 reply_target_lang = ref_lang
 
     author_name = message.author.display_name
@@ -603,7 +609,20 @@ async def on_message(message: discord.Message):
     try:
         fields = []
 
-        active_langs = get_active_languages()
+        # ── Raum-spezifische Sprachen prüfen ──
+        # Wenn der Raum eigene Einstellungen hat → diese nutzen
+        # Wenn nicht → gar nicht übersetzen (kein Fallback auf globale Einstellungen)
+        try:
+            from raumsprachen import get_room_langs
+            room_langs = get_room_langs(message.channel.id)
+        except Exception:
+            room_langs = None
+
+        if room_langs is None:
+            # Kein Eintrag für diesen Raum → nicht übersetzen
+            return
+
+        active_langs = room_langs  # Nur die Raumsprachen gelten
 
         # Alle Ziel-Sprachen bestimmen — gilt für ALLE Ausgangssprachen
         ALL_LANGS = [
@@ -612,6 +631,8 @@ async def on_message(message: discord.Message):
             ("PT", "Brazilian Portuguese", "🇧🇷 Português"),
             ("EN", "English",              "🇬🇧 English"),
             ("JA", "Japanese",             "🇯🇵 日本語"),
+            ("ZH", "Chinese",              "🇨🇳 中文"),
+            ("KO", "Korean",               "🇰🇷 한국어"),
         ]
 
         target_langs = [
@@ -633,7 +654,7 @@ async def on_message(message: discord.Message):
                 fields.append((guest_flag, guest_text))
 
         if fields:
-            color = 0x9B59B6 if lang not in ("DE", "FR", "PT") else 0x3498DB
+            color = 0x9B59B6 if lang not in ("DE", "FR", "PT", "EN", "JA", "ZH", "KO") else 0x3498DB
             await message.reply(embed=make_multi_embed(fields, color), mention_author=False)
 
     except Exception as e:
