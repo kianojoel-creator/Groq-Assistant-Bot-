@@ -416,7 +416,11 @@ async def cmd_help(ctx):
 
     embed.add_field(
         name="🌐 Sprachen / Langues / Idiomas  🔐 R5 • R4",
-        value="`!sprachen` / `!languages` / `!idiomas` – Sprachen ein/ausschalten mit Buttons",
+        value=(
+            "`!sprachen` / `!languages` / `!idiomas` – Globale Sprachen ein/ausschalten mit Buttons\n"
+            "`!raumsprachen [Kanal-ID]` – Sprachen nur für einen bestimmten Raum einstellen (nur Bot-Kanal, nur R5/Dev)\n"
+            "💡 Kein Eintrag = globale Einstellungen • 🗑️ Deaktivieren = keine Übersetzung im Raum"
+        ),
         inline=False
     )
 
@@ -610,19 +614,21 @@ async def on_message(message: discord.Message):
         fields = []
 
         # ── Raum-spezifische Sprachen prüfen ──
-        # Wenn der Raum eigene Einstellungen hat → diese nutzen
-        # Wenn nicht → gar nicht übersetzen (kein Fallback auf globale Einstellungen)
+        # Raum hat eigene Einstellungen → diese nutzen (überschreibt globale)
+        # Raum hat KEINE Einstellungen → globale Sprachen nutzen (normales Verhalten)
+        # Raum wurde explizit deaktiviert (leere Liste) → gar nicht übersetzen
         try:
             from raumsprachen import get_room_langs
             room_langs = get_room_langs(message.channel.id)
         except Exception:
             room_langs = None
 
-        if room_langs is None:
-            # Kein Eintrag für diesen Raum → nicht übersetzen
-            return
-
-        active_langs = room_langs  # Nur die Raumsprachen gelten
+        if room_langs is not None:
+            if len(room_langs) == 0:
+                return  # Explizit deaktiviert
+            active_langs = room_langs
+        else:
+            active_langs = get_active_languages()  # Globale Einstellungen
 
         # Alle Ziel-Sprachen bestimmen — gilt für ALLE Ausgangssprachen
         ALL_LANGS = [

@@ -2,7 +2,7 @@
 #  Sprachen-Cog  •  VHA Alliance
 #  Sprachen per Button ein/ausschalten
 #  DE + FR immer aktiv
-#  PT, EN, JA per Button steuerbar
+#  PT, EN, JA, ZH, KO per Button steuerbar
 # ════════════════════════════════════════════════
 
 import discord
@@ -27,6 +27,8 @@ OPTIONAL_LANGS = {
     "PT": {"flag": "🇧🇷", "name": "Português"},
     "EN": {"flag": "🇬🇧", "name": "English"},
     "JA": {"flag": "🇯🇵", "name": "日本語"},
+    "ZH": {"flag": "🇨🇳", "name": "中文"},
+    "KO": {"flag": "🇰🇷", "name": "한국어"},
 }
 
 ALLOWED_ROLES = {"R5", "R4", "dev"}
