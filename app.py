@@ -161,7 +161,6 @@ async def detect_language_llm(text: str) -> str:
             ]
         )
         result = result.upper().strip()
-        # ZH-CN, ZH-TW etc. → ZH normalisieren
         if result.startswith("ZH"):
             lang = "ZH"
         elif result.startswith("PT"):
@@ -171,16 +170,13 @@ async def detect_language_llm(text: str) -> str:
         elif re.match(r'^[A-Z]{2}$', result):
             lang = result
         else:
-            # Versuche ersten 2-Buchstaben-Code zu extrahieren
             m = re.search(r'\b([A-Z]{2})\b', result)
             lang = m.group(1) if m else "OTHER"
 
-        # Cache nur für kurze Texte und gültige Codes
         known = {"DE","FR","PT","EN","JA","ZH","KO","ES","IT","RU","AR","TR","PL","NL","OTHER"}
         if len(key) < 80 and lang in known:
             lang_cache[key] = lang
             if len(lang_cache) > 500:
-                # Älteste 100 Einträge löschen
                 for k in list(lang_cache.keys())[:100]:
                     del lang_cache[k]
 
@@ -192,16 +188,63 @@ async def detect_language_llm(text: str) -> str:
 
 
 # ────────────────────────────────────────────────
-# ÜBERSETZEN
+# ÜBERSETZEN — ALLE SPRACHEN IN EINEM CALL
 # ────────────────────────────────────────────────
 
+async def translate_all(text: str, target_langs: list) -> dict:
+    """
+    Übersetzt text in ALLE Zielsprachen in einem einzigen API-Call.
+    Spart bis zu 80% der Groq-Requests.
+    target_langs: list of (code, lang_name, label) tuples
+    Gibt dict zurück: {code: übersetzter_text}
+    """
+    if not target_langs:
+        return {}
+
+    lang_list = "\n".join(
+        f"- {code}: {lang_name}" for code, lang_name, _ in target_langs
+    )
+
+    prompt = (
+        f"Translate the following text into these languages:\n{lang_list}\n\n"
+        f"Reply ONLY in this exact format, one line per language:\n"
+        + "\n".join(f"{code}: <translation>" for code, _, _ in target_langs)
+        + "\n\nNo explanations, no extra text. Just the translations in the format above."
+    )
+
+    try:
+        result = await groq_call(
+            model=GROQ_MODEL,
+            temperature=0.15,
+            max_tokens=1200,
+            messages=[
+                {"role": "system", "content": "You are a natural, colloquial translator."},
+                {"role": "user", "content": f"Text to translate:\n{text}\n\n{prompt}"}
+            ]
+        )
+
+        translations = {}
+        for code, _, _ in target_langs:
+            # Suche nach "CODE: <text>" im Ergebnis
+            m = re.search(rf"^{code}:\s*(.+)$", result, re.MULTILINE)
+            if m:
+                translation = m.group(1).strip()
+                if translation and translation.lower() != text.lower():
+                    translations[code] = translation
+        return translations
+
+    except Exception as e:
+        log.error(f"Übersetzungsfehler (multi): {e}")
+        return {}
+
+
 async def translate_text(text: str, target_lang_name: str) -> str:
-    """Übersetzt text in die Zielsprache."""
+    """Einzelübersetzung — nur noch für Reply-Gast-Sprachen verwendet."""
     try:
         return await groq_call(
             model=GROQ_MODEL,
             temperature=0.15,
-            max_tokens=1200,
+            max_tokens=600,
             messages=[
                 {
                     "role": "system",
@@ -710,10 +753,11 @@ async def on_message(message: discord.Message):
             if t[0] != lang and t[0] in active_langs
         ]
 
-        tasks = [translate_text(content, t[1]) for t in target_langs]
-        results = await asyncio.gather(*tasks)
-        for (code, lang_name, label), translation in zip(target_langs, results):
-            if translation and translation.lower() != content.lower():
+        # Ein einziger API-Call für alle Sprachen → spart 80% der Requests
+        translations = await translate_all(content, target_langs)
+        for code, lang_name, label in target_langs:
+            translation = translations.get(code, "")
+            if translation:
                 fields.append((label, translation))
 
         # Reply auf Gast → auch in Gastsprache übersetzen
