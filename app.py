@@ -646,6 +646,17 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
+    # ── GIF-SPERRE (nur ignorieren, keine API-Calls) ─────────────────────────
+    GIF_URL_PATTERN = re.compile(r'https?://\S*(?:tenor\.com|giphy\.com)\S*', re.IGNORECASE)
+    if (
+        any(a.filename.lower().endswith(".gif") or (a.content_type and "gif" in a.content_type.lower())
+            for a in message.attachments)
+        or GIF_URL_PATTERN.search(message.content)
+        or message.stickers
+    ):
+        return
+    # ── ENDE GIF-SPERRE ──────────────────────────────────────────────────────
+
     if message.id in processed_messages_set:
         return
     if len(processed_messages) == processed_messages.maxlen:
