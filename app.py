@@ -205,12 +205,8 @@ async def translate_all(text: str, target_langs: list) -> dict:
         f"- {code}: {lang_name}" for code, lang_name, _ in target_langs
     )
 
-    prompt = (
-        f"Translate the following text into these languages:\n{lang_list}\n\n"
-        f"Reply ONLY in this exact format, one line per language:\n"
-        + "\n".join(f"{code}: <translation>" for code, _, _ in target_langs)
-        + "\n\nNo explanations, no extra text. Just the translations in the format above."
-    )
+    codes_str = ", ".join(f"{code}={lang_name}" for code, lang_name, _ in target_langs)
+    format_str = "\n".join(f"{code}: ..." for code, _, _ in target_langs)
 
     try:
         result = await groq_call(
@@ -218,8 +214,14 @@ async def translate_all(text: str, target_langs: list) -> dict:
             temperature=0.15,
             max_tokens=1200,
             messages=[
-                {"role": "system", "content": "You are a natural, colloquial translator."},
-                {"role": "user", "content": f"Text to translate:\n{text}\n\n{prompt}"}
+                {
+                    "role": "system",
+                    "content": (
+                        f"Translate the user text into: {codes_str}.\n"
+                        f"Reply ONLY in this format (no extra text):\n{format_str}"
+                    )
+                },
+                {"role": "user", "content": text}
             ]
         )
 
