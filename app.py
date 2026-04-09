@@ -201,34 +201,43 @@ async def translate_all(text: str, target_langs: list) -> dict:
     if not target_langs:
         return {}
 
-    lang_list = "\n".join(
-        f"- {code}: {lang_name}" for code, lang_name, _ in target_langs
-    )
-
     codes_str = ", ".join(f"{code}={lang_name}" for code, lang_name, _ in target_langs)
     format_str = "\n".join(f"{code}: ..." for code, _, _ in target_langs)
+
+    # Token-Limit dynamisch: ~1.5 Tokens/Zeichen x Anzahl Sprachen, mind. 1500, max. 6000
+    estimated = max(1500, min(6000, int(len(text) * 1.5 * len(target_langs))))
 
     try:
         result = await groq_call(
             model=GROQ_MODEL,
             temperature=0.15,
-            max_tokens=1200,
+            max_tokens=estimated,
             messages=[
                 {
                     "role": "system",
                     "content": (
                         f"Translate the user text into: {codes_str}.\n"
-                        f"Reply ONLY in this format (no extra text):\n{format_str}"
+                        f"Reply ONLY in this exact format (one language per block, "
+                        f"no extra text, no markdown):\n{format_str}"
                     )
                 },
                 {"role": "user", "content": text}
             ]
         )
 
+        # Codes als geordnete Liste für Bereichs-Extraktion (mehrzeilig)
+        codes = [code for code, _, _ in target_langs]
         translations = {}
-        for code, _, _ in target_langs:
-            # Suche nach "CODE: <text>" im Ergebnis
-            m = re.search(rf"^{code}:\s*(.+)$", result, re.MULTILINE)
+        for i, code in enumerate(codes):
+            if i + 1 < len(codes):
+                next_code = codes[i + 1]
+                m = re.search(
+                    rf"^{code}:\s*(.+?)(?=^{next_code}:)",
+                    result, re.MULTILINE | re.DOTALL
+                )
+            else:
+                m = re.search(rf"^{code}:\s*(.+)", result, re.MULTILINE | re.DOTALL)
+
             if m:
                 translation = m.group(1).strip()
                 if translation and translation.lower() != text.lower():
