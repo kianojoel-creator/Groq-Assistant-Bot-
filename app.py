@@ -50,11 +50,14 @@ translate_active = True
 
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-# Semaphore: max. 4 gleichzeitige Groq-Calls
-groq_semaphore = asyncio.Semaphore(4)
+# Semaphore: max. 2 gleichzeitige Groq-Calls
+groq_semaphore = asyncio.Semaphore(2)
+
+# Globale Rate-Limit-Pause (wird gesetzt wenn Groq 429 meldet)
+_groq_rate_limit_until: float = 0.0
 
 user_last_translation: dict[int, float] = {}
-TRANSLATION_COOLDOWN = 3.0
+TRANSLATION_COOLDOWN = 8.0
 
 # Token-Zähler für den Tag
 token_counter = {"prompt": 0, "completion": 0, "total": 0}
@@ -81,15 +84,24 @@ def ping():
 async def groq_call(model: str, messages: list, temperature: float = 0.15,
                     max_tokens: int = 500, retries: int = 3) -> str:
     """
-    Führt einen Groq-API-Call asynchron aus.
-    - Semaphore: max. 4 gleichzeitige Calls
-    - Automatischer Retry bei Rate-Limit (429) oder Server-Fehler (5xx)
+    Fuehrt einen Groq-API-Call asynchron aus.
+    - Semaphore: max. 2 gleichzeitige Calls
+    - Globale Rate-Limit-Pause: alle Calls warten wenn 429 kam
+    - Automatischer Retry mit Backoff
     - Loggt Token-Verbrauch
     """
+    global _groq_rate_limit_until
     loop = asyncio.get_event_loop()
-    wait = 2
+    wait = 4
 
     for attempt in range(retries):
+        # Globale Pause abwarten (alle Calls gleichzeitig pausiert)
+        now = asyncio.get_event_loop().time()
+        pause = _groq_rate_limit_until - now
+        if pause > 0:
+            log.info(f"Rate-Limit-Pause: warte {pause:.1f}s")
+            await asyncio.sleep(pause)
+
         async with groq_semaphore:
             try:
                 resp = await loop.run_in_executor(
@@ -101,7 +113,6 @@ async def groq_call(model: str, messages: list, temperature: float = 0.15,
                         messages=messages
                     )
                 )
-                # Token-Verbrauch loggen
                 if resp.usage:
                     token_counter["prompt"]     += resp.usage.prompt_tokens
                     token_counter["completion"] += resp.usage.completion_tokens
@@ -115,9 +126,11 @@ async def groq_call(model: str, messages: list, temperature: float = 0.15,
             except Exception as e:
                 err = str(e)
                 if "429" in err or "rate" in err.lower():
-                    log.warning(f"Rate-Limit (Versuch {attempt+1}/{retries}) – warte {wait}s")
+                    # Globale Pause setzen — alle weiteren Calls warten automatisch
+                    _groq_rate_limit_until = asyncio.get_event_loop().time() + wait
+                    log.warning(f"Rate-Limit (Versuch {attempt+1}/{retries}) – globale Pause {wait}s")
                     await asyncio.sleep(wait)
-                    wait *= 2
+                    wait = min(wait * 2, 60)  # max. 60s
                 elif "5" in err[:3]:
                     log.warning(f"Server-Fehler (Versuch {attempt+1}/{retries}) – warte {wait}s")
                     await asyncio.sleep(wait)
@@ -130,18 +143,60 @@ async def groq_call(model: str, messages: list, temperature: float = 0.15,
 
 
 # ────────────────────────────────────────────────
-# SPRACHE ERKENNEN
+# SPRACHE ERKENNEN — regelbasiert (kein API-Call)
 # ────────────────────────────────────────────────
 
-# Cache für kurze Texte (spart Tokens)
+# Cache (auch für LLM-Fallback)
 lang_cache: dict[str, str] = {}
 
+# Neutrale Wörter die keine Spracherkennung auslösen sollen
+_NEUTRAL = {
+    "ok","okay","lol","gg","wp","xd","haha","hahaha","😂","👍","👋","gn","gm",
+    "afk","brb","thx","ty","np","omg","wtf","irl","imo","btw","fyi","asap",
+}
+
+def _script_detect(text: str) -> str | None:
+    """Erkennt Sprache anhand von Unicode-Blöcken — kein API-Call nötig."""
+    cjk    = sum(1 for c in text if "\u4e00" <= c <= "\u9fff" or "\u3400" <= c <= "\u4dbf")
+    hira   = sum(1 for c in text if "\u3040" <= c <= "\u309f")
+    kata   = sum(1 for c in text if "\u30a0" <= c <= "\u30ff")
+    hangul = sum(1 for c in text if "\uac00" <= c <= "\ud7a3")
+    arabic = sum(1 for c in text if "\u0600" <= c <= "\u06ff")
+    cyril  = sum(1 for c in text if "\u0400" <= c <= "\u04ff")
+    total  = max(len(text), 1)
+
+    if (hira + kata) / total > 0.15:  return "JA"
+    if hangul / total > 0.15:         return "KO"
+    if cjk / total > 0.15:            return "ZH"
+    if arabic / total > 0.15:         return "AR"
+    if cyril / total > 0.15:          return "RU"
+    return None  # Lateinische Schrift → LLM nötig
+
+# Nur für lateinische Texte deren Sprache unklar ist
 async def detect_language_llm(text: str) -> str:
-    """Erkennt die Sprache via Groq. Cached kurze Texte."""
-    key = text.lower().strip()[:80]
+    """Erkennt Sprache — zuerst regelbasiert, dann LLM nur wenn nötig."""
+    stripped = text.strip()
+
+    # Neutral / zu kurz / nur Emojis / nur Zahlen → kein Call
+    if not stripped or len(stripped) < 3:
+        return "OTHER"
+    words_lower = {w.strip(".,!?") for w in stripped.lower().split()}
+    if words_lower <= _NEUTRAL:
+        return "OTHER"
+    if re.match(r"^[\d\s\W]+$", stripped):
+        return "OTHER"
+
+    # Zeichensatz-Erkennung (kostenlos)
+    script_lang = _script_detect(stripped)
+    if script_lang:
+        return script_lang
+
+    # Cache prüfen (für lateinische Texte)
+    key = stripped.lower()[:80]
     if key in lang_cache:
         return lang_cache[key]
 
+    # Nur jetzt: LLM-Call (nur für lateinische Schrift nötig)
     try:
         result = await groq_call(
             model=GROQ_MODEL,
@@ -151,35 +206,29 @@ async def detect_language_llm(text: str) -> str:
                 {
                     "role": "system",
                     "content": (
-                        "Detect the language of the text. "
-                        "Reply with ONLY the ISO 639-1 two-letter code in uppercase (DE, FR, PT, EN, JA, ES, IT, RU, ZH, AR, KO, TR, PL, NL). "
-                        "If neutral (ok, lol, gg, emojis only, numbers only) reply: OTHER. "
-                        "No explanation. Just the code."
+                        "Detect the language. Reply ONLY with the ISO 639-1 code in uppercase "
+                        "(DE, FR, PT, EN, ES, IT, TR, PL, NL). "
+                        "If neutral/unclear reply: OTHER. No explanation."
                     )
                 },
-                {"role": "user", "content": text}
+                {"role": "user", "content": stripped[:200]}
             ]
         )
         result = result.upper().strip()
-        if result.startswith("ZH"):
-            lang = "ZH"
-        elif result.startswith("PT"):
+        if result.startswith("PT"):
             lang = "PT"
-        elif result == "OTHER":
-            lang = "OTHER"
-        elif re.match(r'^[A-Z]{2}$', result):
+        elif re.match(r"^[A-Z]{2}$", result):
             lang = result
         else:
-            m = re.search(r'\b([A-Z]{2})\b', result)
+            m = re.search(r"\b([A-Z]{2})\b", result)
             lang = m.group(1) if m else "OTHER"
 
-        known = {"DE","FR","PT","EN","JA","ZH","KO","ES","IT","RU","AR","TR","PL","NL","OTHER"}
-        if len(key) < 80 and lang in known:
+        known = {"DE","FR","PT","EN","ES","IT","TR","PL","NL","OTHER"}
+        if lang in known:
             lang_cache[key] = lang
-            if len(lang_cache) > 500:
-                for k in list(lang_cache.keys())[:100]:
+            if len(lang_cache) > 800:
+                for k in list(lang_cache.keys())[:200]:
                     del lang_cache[k]
-
         return lang
 
     except Exception as e:
