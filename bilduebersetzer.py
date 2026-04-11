@@ -13,7 +13,7 @@ import logging
 
 log = logging.getLogger("VHABot.Bild")
 
-VISION_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
+VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 # Cooldown für !übersetze pro User (Sekunden)
 IMAGE_COOLDOWN = 15.0
@@ -41,7 +41,7 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
     result_str = await groq_call_fn(
         model=VISION_MODEL,
         temperature=0.1,
-        max_tokens=1500,
+        max_tokens=900,
         messages=[
             {
                 "role": "user",
@@ -60,7 +60,7 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
                             "Combine all text into a clean, deduplicated version.\n\n"
                             "Reply with VALID JSON ONLY (no markdown):\n"
                             '{"original": "clean deduplicated text", "lang": "ISO code", '
-                            '"de": "German translation (no duplicates)", "fr": "French translation (no duplicates)", "pt": "Brazilian Portuguese translation (no duplicates)"}\n\n'
+                            '"de": "German translation (no duplicates)", "fr": "French translation (no duplicates)", "pt": "Brazilian Portuguese translation (no duplicates)", "en": "English translation (no duplicates)"}\n\n'
                             'If truly no text: {"original": "NOTEXT"}'
                         )
                     }
@@ -156,32 +156,6 @@ class BildUebersetzerCog(commands.Cog):
 
         import asyncio as _asyncio
 
-        # Sprachen einmal laden
-        try:
-            from sprachen import get_active_langs
-            active_langs = get_active_langs()
-        except Exception:
-            active_langs = {"DE", "FR", "PT"}
-        active_langs = active_langs | {"EN"}
-
-        def clean_text(text: str) -> str:
-            if not text:
-                return ""
-            lines = text.split("\n")
-            seen = []
-            for line in lines:
-                s = line.strip()
-                if s and s not in seen:
-                    seen.append(s)
-            return "\n".join(seen)
-
-        LANG_DISPLAY = {
-            "DE": ("🇩🇪", "Deutsch"),
-            "FR": ("🇫🇷", "Français"),
-            "PT": ("🇧🇷", "Português"),
-            "EN": ("🇬🇧", "English"),
-        }
-
         async def process_single(url: str, index: int) -> discord.Embed:
             try:
                 image_b64, content_type = await image_to_base64(url)
@@ -192,27 +166,54 @@ class BildUebersetzerCog(commands.Cog):
                 if not result:
                     return None
 
-                lang = (result.get("lang") or "?").upper()
+                lang = result.get("lang", "?")
                 title = f"🖼️ Bild {index}/{total}" if total > 1 else "🖼️ Bildübersetzung / Traduction / Tradução"
                 embed = discord.Embed(title=title, color=0x9B59B6)
-                embed.set_author(name="VHA Bild-Übersetzer", icon_url=LOGO_URL)
 
-                has_translation = False
-                for code, (flag, name) in LANG_DISPLAY.items():
-                    if code not in active_langs:
-                        continue
-                    if code == lang:
-                        continue
-                    text = clean_text(result.get(code.lower(), ""))
+                # Aktive Sprachen laden
+                try:
+                    from sprachen import get_active_langs
+                    active_langs = get_active_langs()
+                except Exception:
+                    active_langs = {"DE", "FR", "PT"}
+
+                # Übersetzungen anzeigen - kein Original, nur aktive Sprachen
+                # Doppelte Zeilen im Text bereinigen
+                def clean_text(text: str) -> str:
                     if not text:
-                        continue
-                    embed.add_field(name=f"{flag} {name}", value=text[:1000], inline=False)
-                    has_translation = True
+                        return text
+                    lines = text.split("\n")
+                    seen = []
+                    for line in lines:
+                        line_stripped = line.strip()
+                        if line_stripped and line_stripped not in seen:
+                            seen.append(line_stripped)
+                    return "\n".join(seen)
 
-                if not has_translation:
+                if "DE" in active_langs and result.get("de") and lang != "DE":
+                    cleaned = clean_text(result["de"])
+                    if cleaned:
+                        embed.add_field(name="🇩🇪 Deutsch", value=cleaned[:1000], inline=False)
+
+                if "FR" in active_langs and result.get("fr") and lang != "FR":
+                    cleaned = clean_text(result["fr"])
+                    if cleaned:
+                        embed.add_field(name="🇫🇷 Français", value=cleaned[:1000], inline=False)
+
+                if "PT" in active_langs and result.get("pt") and lang != "PT":
+                    cleaned = clean_text(result["pt"])
+                    if cleaned:
+                        embed.add_field(name="🇧🇷 Português", value=cleaned[:1000], inline=False)
+
+                if result.get("en") and lang != "EN":
+                    cleaned = clean_text(result["en"])
+                    if cleaned:
+                        embed.add_field(name="🇬🇧 English", value=cleaned[:1000], inline=False)
+
+                if not embed.fields:
                     return None
 
-                embed.set_footer(text="VHA Bild-Übersetzer • Mecha Fire", icon_url=LOGO_URL)
+                embed.set_footer(text="VHA Bild-Übersetzer • Mecha Fire")
                 return embed
             except Exception as e:
                 log.error(f"Bildübersetzungs-Fehler Bild {index}: {e}")
