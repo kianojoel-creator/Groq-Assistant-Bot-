@@ -54,13 +54,18 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
                         "type": "text",
                         "text": (
                             "This image is from the mobile game Mecha Fire. "
-                            "It may show: in-game chat, events, profiles, menus, alliance info.\n"
-                            "Extract ALL visible text including chat bubbles on dark backgrounds.\n"
-                            "IMPORTANT: Do NOT duplicate lines. Each unique sentence appears only ONCE.\n"
-                            "Combine all text into a clean, deduplicated version.\n\n"
-                            "Reply with VALID JSON ONLY (no markdown):\n"
-                            '{"original": "clean deduplicated text", "lang": "ISO code", '
-                            '"de": "German translation (no duplicates)", "fr": "French translation (no duplicates)", "pt": "Brazilian Portuguese translation (no duplicates)"}\n\n'
+                            "It may show: in-game chat, events, profiles, menus, alliance info.\\n"
+                            "IMPORTANT FORMATTING:\\n"
+                            "- Each chat message on its OWN line, separated by a blank line (\\n\\n)\\n"
+                            "- Format: [SenderName]: message text\\n"
+                            "- NEVER merge multiple messages into one block\\n"
+                            "- No duplicate lines\\n\\n"
+                            "Reply VALID JSON ONLY (no markdown, no backticks):\\n"
+                            "{\"original\": \"[Name1]: msg1\\n\\n[Name2]: msg2\", \"lang\": \"ISO\", "
+                            "\"de\": \"[Name1]: german1\\n\\n[Name2]: german2\", "
+                            "\"fr\": \"[Name1]: french1\\n\\n[Name2]: french2\", "
+                            "\"pt\": \"[Name1]: port1\\n\\n[Name2]: port2\", "
+                            "\"en\": \"[Name1]: english1\\n\\n[Name2]: english2\"}\\n\\n"
                             'If truly no text: {"original": "NOTEXT"}'
                         )
                     }
@@ -80,7 +85,7 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
     except Exception:
         log.warning(f"JSON-Parse fehlgeschlagen, versuche Fallback: {result_str[:200]}")
         # Fallback: alter Text-Parser
-        parsed = {"original": "", "lang": "", "de": "", "fr": "", "pt": ""}
+        parsed = {"original": "", "lang": "", "de": "", "fr": "", "pt": "", "en": ""}
         for line in result_str.split("\n"):
             if line.startswith("ORIGINAL:"):
                 parsed["original"] = line.replace("ORIGINAL:", "").strip()
@@ -92,6 +97,8 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
                 parsed["fr"] = line.replace("FR:", "").strip()
             elif line.startswith("PT:"):
                 parsed["pt"] = line.replace("PT:", "").strip()
+            elif line.startswith("EN:"):
+                parsed["en"] = line.replace("EN:", "").strip()
         return parsed if parsed.get("original") else None
 
 
@@ -154,6 +161,43 @@ class BildUebersetzerCog(commands.Cog):
 
         import asyncio as _asyncio
 
+        # Sprachen einmal laden (gilt für alle Bilder)
+        try:
+            from sprachen import get_active_langs
+            active_langs = get_active_langs()
+        except Exception:
+            active_langs = {"DE", "FR", "PT"}
+        # EN immer anzeigen beim Bildübersetzer
+        active_langs = active_langs | {"EN"}
+
+        # Sprach-Mapping: Code → (Flagge, Name)
+        LANG_DISPLAY = {
+            "DE": ("🇩🇪", "Deutsch"),
+            "FR": ("🇫🇷", "Français"),
+            "PT": ("🇧🇷", "Português"),
+            "EN": ("🇬🇧", "English"),
+        }
+        ORIG_FLAGS = {
+            "DE": "🇩🇪", "FR": "🇫🇷", "PT": "🇧🇷", "EN": "🇬🇧",
+            "JA": "🇯🇵", "ZH": "🇨🇳", "KO": "🇰🇷", "ES": "🇪🇸",
+            "IT": "🇮🇹", "RU": "🇷🇺", "AR": "🇸🇦", "TR": "🇹🇷",
+        }
+
+        def clean_text(text: str) -> str:
+            """Entfernt Duplikate aber behält Leerzeilen zwischen Nachrichten."""
+            if not text:
+                return ""
+            # Nachrichten-Blöcke splitten (doppelter Zeilenumbruch = Trenner)
+            blocks = text.split("\n\n")
+            seen = []
+            result = []
+            for block in blocks:
+                block = block.strip()
+                if block and block not in seen:
+                    seen.append(block)
+                    result.append(block)
+            return "\n\n".join(result)
+
         async def process_single(url: str, index: int) -> discord.Embed:
             try:
                 image_b64, content_type = await image_to_base64(url)
@@ -164,49 +208,52 @@ class BildUebersetzerCog(commands.Cog):
                 if not result:
                     return None
 
-                lang = result.get("lang", "?")
-                title = f"🖼️ Bild {index}/{total}" if total > 1 else "🖼️ Bildübersetzung / Traduction / Tradução"
+                lang = (result.get("lang") or "?").upper()
+                orig_flag = ORIG_FLAGS.get(lang, "🌐")
+
+                # Titel
+                if total > 1:
+                    title = f"🖼️ Bild {index} / {total}"
+                else:
+                    title = "🖼️ Bild-Übersetzer • Mecha Fire"
+
                 embed = discord.Embed(title=title, color=0x9B59B6)
+                embed.set_author(name="VHA Bild-Übersetzer", icon_url=LOGO_URL)
 
-                # Aktive Sprachen laden
-                try:
-                    from sprachen import get_active_langs
-                    active_langs = get_active_langs()
-                except Exception:
-                    active_langs = {"DE", "FR", "PT"}
+                # Original-Text oben — kompakt, max 800 Zeichen
+                orig = clean_text(result.get("original", ""))
+                if orig:
+                    orig_display = orig[:800] + ("…" if len(orig) > 800 else "")
+                    embed.add_field(
+                        name=f"{orig_flag} Originaltext ({lang})",
+                        value=f"```{orig_display}```",
+                        inline=False
+                    )
 
-                # Übersetzungen anzeigen - kein Original, nur aktive Sprachen
-                # Doppelte Zeilen im Text bereinigen
-                def clean_text(text: str) -> str:
+                # Trennlinie als leeres Feld
+                embed.add_field(name="​", value="─────────────────", inline=False)
+
+                # Übersetzungen — nur aktive Sprachen, nicht wenn gleich wie Original
+                has_translation = False
+                for code, (flag, name) in LANG_DISPLAY.items():
+                    if code not in active_langs:
+                        continue
+                    if code == lang:
+                        continue
+                    text = clean_text(result.get(code.lower(), ""))
                     if not text:
-                        return text
-                    lines = text.split("\n")
-                    seen = []
-                    for line in lines:
-                        line_stripped = line.strip()
-                        if line_stripped and line_stripped not in seen:
-                            seen.append(line_stripped)
-                    return "\n".join(seen)
+                        continue
+                    display = text[:1000] + ("…" if len(text) > 1000 else "")
+                    embed.add_field(name=f"{flag} {name}", value=display, inline=False)
+                    has_translation = True
 
-                if "DE" in active_langs and result.get("de") and lang != "DE":
-                    cleaned = clean_text(result["de"])
-                    if cleaned:
-                        embed.add_field(name="🇩🇪 Deutsch", value=cleaned[:1000], inline=False)
-
-                if "FR" in active_langs and result.get("fr") and lang != "FR":
-                    cleaned = clean_text(result["fr"])
-                    if cleaned:
-                        embed.add_field(name="🇫🇷 Français", value=cleaned[:1000], inline=False)
-
-                if "PT" in active_langs and result.get("pt") and lang != "PT":
-                    cleaned = clean_text(result["pt"])
-                    if cleaned:
-                        embed.add_field(name="🇧🇷 Português", value=cleaned[:1000], inline=False)
-
-                if not embed.fields:
+                if not has_translation:
                     return None
 
-                embed.set_footer(text="VHA Bild-Übersetzer • Mecha Fire")
+                embed.set_footer(
+                    text=f"VHA Bild-Übersetzer • Erkannte Sprache: {lang}",
+                    icon_url=LOGO_URL
+                )
                 return embed
             except Exception as e:
                 log.error(f"Bildübersetzungs-Fehler Bild {index}: {e}")
