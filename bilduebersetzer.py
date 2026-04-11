@@ -13,7 +13,7 @@ import logging
 
 log = logging.getLogger("VHABot.Bild")
 
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+VISION_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
 
 # Cooldown für !übersetze pro User (Sekunden)
 IMAGE_COOLDOWN = 15.0
@@ -41,7 +41,7 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
     result_str = await groq_call_fn(
         model=VISION_MODEL,
         temperature=0.1,
-        max_tokens=900,
+        max_tokens=1500,
         messages=[
             {
                 "role": "user",
@@ -53,11 +53,13 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
                     {
                         "type": "text",
                         "text": (
-                            "This image is from the mobile game Mecha Fire. "
-                            "It may show: in-game chat, events, profiles, menus, alliance info.\\n"
-                            "IMPORTANT FORMATTING:\\n"
-                            "- Each chat message on its OWN line, separated by a blank line (\\n\\n)\\n"
-                            "- Format: [SenderName]: message text\\n"
+                            "This image is or contains a screenshot from the mobile game Mecha Fire. "
+                            "The image may be a screenshot of a screenshot, a chat window, a phone screen, or a dark background with text. "
+                            "Extract ALL visible text — including text inside inner screenshots, chat bubbles, small UI elements, and dark backgrounds. "
+                            "Even if the image quality is low or the text is small, try your best to read it.\\n\\n"
+                            "FORMATTING RULES:\\n"
+                            "- Each chat message = its own block, separated by \\n\\n\\n"
+                            "- Format: [SenderName]: message\\n"
                             "- NEVER merge multiple messages into one block\\n"
                             "- No duplicate lines\\n\\n"
                             "Reply VALID JSON ONLY (no markdown, no backticks):\\n"
@@ -66,7 +68,7 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
                             "\"fr\": \"[Name1]: french1\\n\\n[Name2]: french2\", "
                             "\"pt\": \"[Name1]: port1\\n\\n[Name2]: port2\", "
                             "\"en\": \"[Name1]: english1\\n\\n[Name2]: english2\"}\\n\\n"
-                            'If truly no text: {"original": "NOTEXT"}'
+                            'If truly no text visible at all: {"original": "NOTEXT"}'
                         )
                     }
                 ]
