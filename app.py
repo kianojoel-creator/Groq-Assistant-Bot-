@@ -421,6 +421,11 @@ async def on_ready():
     except Exception as e:
         errors.append(f"❌ svs: {e}")
 
+    try:
+        await bot.load_extension("server")
+    except Exception as e:
+        errors.append(f"❌ server: {e}")
+
     log.info(f"→ {bot.user}  •  ONLINE  •  {discord.utils.utcnow():%Y-%m-%d %H:%M UTC}")
 
     if BOT_LOG_CHANNEL_ID:
@@ -439,7 +444,8 @@ async def on_ready():
                     "🔧 log.py • geladen\n"
                     "🔧 raumsprachen.py • geladen\n"
                     "🔧 sprachen.py • geladen\n"
-                    "🔧 svs.py • geladen"
+                    "🔧 svs.py • geladen\n"
+                    "🔧 server.py • geladen"
                 )
             await channel.send(msg)
 
@@ -522,6 +528,16 @@ async def cmd_help(ctx):
             "`!raumsprachen [Kanal-ID]` – Sprachen nur für einen bestimmten Raum einstellen (nur Bot-Kanal, nur R5/Dev)\n"
             "`!kanalid` – Alle Kanäle mit ID als Direktnachricht (für !raumsprachen)\n"
             "💡 Kein Eintrag = globale Einstellungen • 🚫 Deaktivieren = keine Übersetzung im Raum"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🏗️ Server-Struktur  🔐 R5",
+        value=(
+            "`!server export` – Aktuelle Struktur in MongoDB speichern\n"
+            "`!server preview` – Gespeicherte Struktur anzeigen\n"
+            "`!server import` – Struktur auf neuem Server erstellen"
         ),
         inline=False
     )
