@@ -479,11 +479,12 @@ async def cmd_help(ctx):
     embed.add_field(
         name="👥 Spieler-IDs / Joueurs / Jogadores  🔐 R5 • R4",
         value=(
-            "`!spieler` / `!joueur` – Liste / Afficher / Ver lista\n"
+            "`!spieler` / `!joueur` – Liste mit 🗑️ Delete-Buttons\n"
             "`!spieler add NAME ID` – Hinzufügen / Ajouter / Adicionar\n"
-            "`!spieler delete NAME` – Löschen / Supprimer / Apagar\n"
             "`!spieler suche NAME/ID` – Suchen / Rechercher / Pesquisar"
         ),
+        inline=False
+    )
         inline=False
     )
 
