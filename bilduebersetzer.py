@@ -212,13 +212,6 @@ class BildUebersetzerCog(commands.Cog):
 
                 lang = (result.get("lang") or "?").upper().strip()
 
-                # Aktive Sprachen aus globalen Einstellungen
-                try:
-                    from sprachen import get_active_langs
-                    active_langs = get_active_langs()
-                except Exception:
-                    active_langs = {"DE", "FR", "PT", "EN"}
-
                 title = (
                     f"🖼️ Bild {index}/{total} • Bildübersetzung"
                     if total > 1
@@ -226,25 +219,33 @@ class BildUebersetzerCog(commands.Cog):
                 )
                 embed = discord.Embed(title=title, color=0x9B59B6)
 
-                # Sprachen anzeigen — nur aktive, nicht die Originalsprache
+                # Original-Text immer zuerst anzeigen
+                original_text = clean_text(result.get("original", ""))
+                if original_text:
+                    embed.add_field(
+                        name=f"📜 Original ({lang})",
+                        value=original_text[:1000],
+                        inline=False
+                    )
+
+                # Immer alle 4 Sprachen hartcodiert – unabhängig von sprachen.py
                 lang_map = [
-                    ("DE", "🇩🇪 Deutsch",    result.get("de", "")),
-                    ("FR", "🇫🇷 Français",   result.get("fr", "")),
-                    ("EN", "🇬🇧 English",    result.get("en", "")),
-                    ("PT", "🇧🇷 Português",  result.get("pt", "")),
+                    ("DE", "🇩🇪 Deutsch",     result.get("de", "")),
+                    ("FR", "🇫🇷 Français",    result.get("fr", "")),
+                    ("EN", "🇬🇧 English",     result.get("en", "")),
+                    ("PT", "🇧🇷 Português",   result.get("pt", "")),
                 ]
 
                 for code, label, text in lang_map:
-                    if code not in active_langs:
-                        continue
-                    if lang == code:
-                        continue  # Originalsprache nicht nochmal anzeigen
                     cleaned = clean_text(text)
                     if cleaned:
                         embed.add_field(name=label, value=cleaned[:1000], inline=False)
-
-                if not embed.fields:
-                    return None
+                    else:
+                        embed.add_field(
+                            name=label,
+                            value="*(keine Übersetzung verfügbar)*",
+                            inline=False
+                        )
 
                 embed.set_footer(text="VHA Bild-Übersetzer • Mecha Fire", icon_url=LOGO_URL)
                 return embed
