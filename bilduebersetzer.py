@@ -231,16 +231,17 @@ class BildUebersetzerCog(commands.Cog):
                     cleaned = clean_text(text)
 
                     if cleaned:
-                        # Namen fett machen – ohne @ davor
+                        # Namen fett machen – egal ob mit oder ohne @
+                        # Erkennt Namen am Anfang der Zeile oder nach Leerzeichen
                         import re
-                        
-                        # Entfernt @ vor dem Namen (falls vorhanden) und macht den Namen fett + Doppelpunkt
-                        cleaned = re.sub(r'@?(\b[A-Za-z0-9_]{3,20}\b)', r'**\1:** ', cleaned)
+                        # Fall 1: mit @   → **@Name:**
+                        cleaned = re.sub(r'@(\S+)', r'**\1:** ', cleaned)
+                        # Fall 2: ohne @ (normaler Spielername am Zeilenanfang oder nach Leerzeichen)
+                        cleaned = re.sub(r'(^|\n|\s)([A-Za-z0-9_]{3,20})(?=\s|:)', r'\1**\2:** ', cleaned)
 
-                        # Doppelte Doppelpunkte und Leerzeichen-Probleme bereinigen
+                        # Doppelte Doppelpunkte bereinigen
                         cleaned = cleaned.replace(":**:**", ":**")
                         cleaned = cleaned.replace(":** :", ":** ")
-                        cleaned = cleaned.replace("** **", "**")
 
                         # \n sauber machen
                         cleaned = cleaned.replace("\\n", "\n").strip()
