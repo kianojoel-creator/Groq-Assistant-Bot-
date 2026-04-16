@@ -415,8 +415,7 @@ async def on_ready():
         errors.append(f"❌ timer: {e}")
 
     try:
-        from bilduebersetzer import setup as setup_bild
-        await setup_bild(bot, groq_client, groq_call)
+        await bot.load_extension("bilduebersetzer")
     except Exception as e:
         errors.append(f"❌ bilduebersetzer: {e}")
 
