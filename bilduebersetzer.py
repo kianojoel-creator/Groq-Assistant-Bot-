@@ -219,7 +219,7 @@ class BildUebersetzerCog(commands.Cog):
                 )
                 embed = discord.Embed(title=title, color=0x9B59B6)
 
-                # Immer alle 4 Sprachen hartcodiert – unabhängig von sprachen.py
+                # Immer alle 4 Sprachen hartcodiert
                 lang_map = [
                     ("DE", "🇩🇪 Deutsch",     result.get("de", "")),
                     ("FR", "🇫🇷 Français",    result.get("fr", "")),
@@ -230,19 +230,19 @@ class BildUebersetzerCog(commands.Cog):
                 for code, label, text in lang_map:
                     cleaned = clean_text(text)
 
-                    # Namen verbessern: @Noxxi → **@Noxxi:** mit Leerzeichen
                     if cleaned:
-                        # @Noxxi1 → @Noxxi:   und @NOXX1 → @NOXX1:
-                        cleaned = cleaned.replace("@NOXX1", "@NOXX1: ")
-                        cleaned = cleaned.replace("@Noxxi1", "@Noxxi: ")
-                        cleaned = cleaned.replace("@Noxxi", "**@Noxxi:** ")
-                        cleaned = cleaned.replace("@Tyooky", "**@Tyooky:** ")
-
-                        # Allgemein: @Name → **@Name:** 
+                        # Namen fett machen – ohne @ davor
                         import re
-                        cleaned = re.sub(r'@(\w+)', r'**\1:** ', cleaned)
+                        
+                        # Entfernt @ vor dem Namen (falls vorhanden) und macht den Namen fett + Doppelpunkt
+                        cleaned = re.sub(r'@?(\b[A-Za-z0-9_]{3,20}\b)', r'**\1:** ', cleaned)
 
-                        # Entferne überflüssige \n am Ende von Zeilen
+                        # Doppelte Doppelpunkte und Leerzeichen-Probleme bereinigen
+                        cleaned = cleaned.replace(":**:**", ":**")
+                        cleaned = cleaned.replace(":** :", ":** ")
+                        cleaned = cleaned.replace("** **", "**")
+
+                        # \n sauber machen
                         cleaned = cleaned.replace("\\n", "\n").strip()
 
                     if cleaned:
