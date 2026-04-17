@@ -44,7 +44,7 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
     result_str = await groq_call_fn(
         model=VISION_MODEL,
         temperature=0.1,
-        max_tokens=1200,
+        max_tokens=1800,
         messages=[
             {
                 "role": "user",
@@ -56,30 +56,34 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
                     {
                         "type": "text",
                         "text": (
-                            "You are analyzing a screenshot. It may be from:\n"
-                            "- A mobile game chat (Mecha Fire) where messages often appear TWICE "
-                            "(original language + auto-translation below it — keep only ONE version per message)\n"
-                            "- A Discord chat with multiple users and messages\n"
-                            "- Game menus, profiles, alliance info, events\n\n"
+                            "You are analyzing a game chat screenshot from Mecha Fire (mobile strategy game) or Discord.\n\n"
 
-                            "CRITICAL RULES:\n"
-                            "1. If a message appears in TWO languages (original + game translation), "
-                            "keep ONLY the ORIGINAL (first) version — ignore the auto-translated duplicate\n"
-                            "2. For Discord screenshots: extract each message separately with the username if visible\n"
-                            "3. Do NOT repeat the same sentence twice\n"
-                            "4. Do NOT mix languages in a single translation field\n"
-                            "5. If there is truly no readable text, return {\"original\": \"NOTEXT\"}\n\n"
+                            "STEP 1 — EXTRACT TEXT:\n"
+                            "- If a message appears TWICE (original + game auto-translation below it), keep ONLY the ORIGINAL (first version)\n"
+                            "- Extract each message as a separate line\n"
+                            "- If a player name/username is visible before a message, prefix that line with: @NAME:PlayerName| then the message\n"
+                            "  Example: @NAME:SaintBrewski| They seem to be falling out okay after that hack kick thing.\n"
+                            "  Example: @NAME:Mochisaurus| Hack kick thing?\n"
+                            "- If no player name is visible for a message, write the message directly with NO prefix\n"
+                            "- Do NOT repeat the same sentence twice\n"
+                            "- Ignore UI labels, buttons, timestamps, rank badges\n\n"
+
+                            "STEP 2 — TRANSLATE:\n"
+                            "Translate ALL extracted messages into all 4 languages below.\n"
+                            "Keep the @NAME:PlayerName| prefix on each line in every translation — this is critical.\n"
+                            "Keep game terms untranslated: R1/R2/R3/R4/R5, coordinates, server numbers, @mentions, player names.\n"
+                            "Translate naturally like a real player would write.\n"
+                            "You MUST provide all 4 translations. Never leave a field empty or write 'no translation available'.\n\n"
 
                             "OUTPUT FORMAT — reply with VALID JSON ONLY, no markdown, no explanation:\n"
                             "{\n"
-                            "  \"original\": \"clean extracted text, one sentence per line, no duplicates\",\n"
-                            "  \"lang\": \"ISO 639-1 code of the original text (DE/FR/EN/ZH/KO/etc)\",\n"
-                            "  \"de\": \"German translation\",\n"
-                            "  \"fr\": \"French translation\",\n"
-                            "  \"en\": \"English translation\",\n"
-                            "  \"pt\": \"Brazilian Portuguese translation\"\n"
+                            "  \"lang\": \"ISO 639-1 code of the original text (DE/FR/EN/PT/ZH/KO/etc)\",\n"
+                            "  \"de\": \"German translation, one message per line, @NAME:X| prefix where applicable\",\n"
+                            "  \"fr\": \"French translation, one message per line, @NAME:X| prefix where applicable\",\n"
+                            "  \"en\": \"English translation, one message per line, @NAME:X| prefix where applicable\",\n"
+                            "  \"pt\": \"Brazilian Portuguese translation, one message per line, @NAME:X| prefix where applicable\"\n"
                             "}\n\n"
-                            "Translate naturally and colloquially. Each field must be in ONE language only."
+                            "If there is truly no readable text, return {\"lang\": \"?\", \"de\": \"NOTEXT\", \"fr\": \"NOTEXT\", \"en\": \"NOTEXT\", \"pt\": \"NOTEXT\"}"
                         )
                     }
                 ]
@@ -89,7 +93,6 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
 
     try:
         clean = result_str.strip()
-        # Markdown-Backticks entfernen
         if clean.startswith("```"):
             clean = clean.split("```")[1]
             if clean.startswith("json"):
@@ -98,7 +101,8 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
 
         parsed = json.loads(clean)
 
-        if parsed.get("original", "").upper().strip() == "NOTEXT":
+        # Prüfen ob kein Text erkannt
+        if all(parsed.get(k, "").upper().strip() == "NOTEXT" for k in ["de", "fr", "en", "pt"]):
             return None
 
         return parsed
@@ -106,28 +110,57 @@ async def extract_and_translate(groq_call_fn, image_b64: str, content_type: str)
     except Exception:
         log.warning(f"JSON-Parse fehlgeschlagen: {result_str[:300]}")
 
-        # Fallback: versuche Felder manuell zu extrahieren
-        parsed = {"original": "", "lang": "?", "de": "", "fr": "", "pt": "", "en": ""}
+        parsed = {"lang": "?", "de": "", "fr": "", "pt": "", "en": ""}
         for line in result_str.split("\n"):
-            for key in ["original", "lang", "de", "fr", "pt", "en"]:
+            for key in ["lang", "de", "fr", "pt", "en"]:
                 prefix = f'"{key}":'
                 if prefix in line.lower():
                     val = line.split(":", 1)[-1].strip().strip('",')
                     parsed[key] = val
-        return parsed if parsed.get("original") else None
+        return parsed if any(parsed.get(k) for k in ["de", "fr", "en", "pt"]) else None
 
 
 def clean_text(text: str) -> str:
-    """Entfernt doppelte Zeilen und bereinigt den Text."""
+    """
+    Bereinigt den übersetzten Text:
+    - Wandelt literal \\n in echte Zeilenumbrüche um
+    - Konvertiert [NAME: PlayerName] in **PlayerName:** (Discord fett)
+    - Entfernt doppelte Zeilen
+    """
     if not text:
         return ""
+
+    import re
+
+    # Literal \n (als zwei Zeichen) → echter Zeilenumbruch
+    text = text.replace("\\n", "\n")
+
+    # Zeilen aufteilen und bereinigen
     lines = text.split("\n")
     seen = []
+    result_lines = []
+
     for line in lines:
         stripped = line.strip()
-        if stripped and stripped not in seen:
-            seen.append(stripped)
-    return "\n".join(seen)
+        if not stripped:
+            continue
+        if stripped in seen:
+            continue
+        seen.append(stripped)
+
+        # @NAME:PlayerName| prefix → **PlayerName:** fett
+        name_match = re.match(r'^@NAME:([^|]+)\|\s*(.*)', stripped)
+        if name_match:
+            player_name = name_match.group(1).strip()
+            message = name_match.group(2).strip()
+            if message:
+                result_lines.append(f"**{player_name}:** {message}")
+            else:
+                result_lines.append(f"**{player_name}:**")
+        else:
+            result_lines.append(stripped)
+
+    return "\n".join(result_lines)
 
 
 LOGO_URL = (
@@ -219,16 +252,7 @@ class BildUebersetzerCog(commands.Cog):
                 )
                 embed = discord.Embed(title=title, color=0x9B59B6)
 
-                # Original-Text immer zuerst anzeigen
-                original_text = clean_text(result.get("original", ""))
-                if original_text:
-                    embed.add_field(
-                        name=f"📜 Original ({lang})",
-                        value=original_text[:1000],
-                        inline=False
-                    )
-
-                # Immer alle 4 Sprachen hartcodiert – unabhängig von sprachen.py
+                # Immer alle 4 Sprachen — Original wird nicht mehr angezeigt
                 lang_map = [
                     ("DE", "🇩🇪 Deutsch",     result.get("de", "")),
                     ("FR", "🇫🇷 Français",    result.get("fr", "")),
@@ -236,16 +260,15 @@ class BildUebersetzerCog(commands.Cog):
                     ("PT", "🇧🇷 Português",   result.get("pt", "")),
                 ]
 
+                has_any = False
                 for code, label, text in lang_map:
                     cleaned = clean_text(text)
                     if cleaned:
+                        has_any = True
                         embed.add_field(name=label, value=cleaned[:1000], inline=False)
-                    else:
-                        embed.add_field(
-                            name=label,
-                            value="*(keine Übersetzung verfügbar)*",
-                            inline=False
-                        )
+
+                if not has_any:
+                    return None
 
                 embed.set_footer(text="VHA Bild-Übersetzer • Mecha Fire", icon_url=LOGO_URL)
                 return embed
