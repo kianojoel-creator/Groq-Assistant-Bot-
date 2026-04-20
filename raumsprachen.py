@@ -1,7 +1,7 @@
 # ════════════════════════════════════════════════
 #  Raumsprachen-Cog  •  VHA Alliance
 #  Raum-spezifische Sprachen per Button steuern
-#  Nur im Bot-Log-Kanal nutzbar • Nur R5 / Dev
+#  Funktioniert auf jedem Server • Nur R5 / Dev
 # ════════════════════════════════════════════════
 
 import discord
@@ -17,9 +17,6 @@ LOGO_URL = (
     "1484253018533662740/Picsart_26-03-18_13-55-24-994.png"
     "?ex=69bd8dd7&is=69bc3c57&hm=de6fea399dd30f97d2a14e1515c9e7f91d81d0d9ea111f13e0757d42eb12a0e5&"
 )
-
-# Kanal in dem der Befehl erlaubt ist (Bot-Log-Kanal)
-BOT_LOG_CHANNEL_ID = 1484252260614537247
 
 # Rollen die den Befehl nutzen dürfen
 ALLOWED_ROLES = {"R5", "DEV"}
@@ -278,18 +275,9 @@ class RaumSprachenCog(commands.Cog):
     async def cmd_raumsprachen(self, ctx, channel_id: int = None):
         """
         Stellt raum-spezifische Sprachen ein.
-        Nur im Bot-Log-Kanal nutzbar. Nur R5 / Dev.
+        Nur R5 / Dev. Funktioniert auf jedem Server.
         Verwendung: !raumsprachen [Kanal-ID]
         """
-
-        # Nur im Bot-Log-Kanal erlaubt
-        if ctx.channel.id != BOT_LOG_CHANNEL_ID:
-            await ctx.message.delete(delay=3)
-            await ctx.send(
-                f"❌ Dieser Befehl ist nur in <#{BOT_LOG_CHANNEL_ID}> erlaubt.",
-                delete_after=5
-            )
-            return
 
         # Berechtigungsprüfung
         if not has_permission(ctx.author):
