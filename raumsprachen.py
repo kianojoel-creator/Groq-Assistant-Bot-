@@ -294,10 +294,30 @@ class RaumSprachenCog(commands.Cog):
             )
             return
 
-        # Kanal im Server suchen
+        # Kanal suchen — erst Cache, dann direkt per API (fetch)
         channel = ctx.guild.get_channel(channel_id)
         if channel is None:
-            await ctx.send(f"❌ Kanal mit ID `{channel_id}` nicht gefunden.", delete_after=8)
+            channel = ctx.guild.get_channel_or_thread(channel_id)
+        if channel is None:
+            for ch in ctx.guild.channels:
+                if ch.id == channel_id:
+                    channel = ch
+                    break
+        # Letzter Fallback: direkt bei Discord anfragen (umgeht Cache-Probleme)
+        if channel is None:
+            try:
+                channel = await ctx.bot.fetch_channel(channel_id)
+                # Sicherstellen dass der Kanal zum aktuellen Server gehört
+                if hasattr(channel, "guild") and channel.guild.id != ctx.guild.id:
+                    channel = None
+            except Exception:
+                channel = None
+        if channel is None:
+            await ctx.send(
+                f"❌ Kanal mit ID `{channel_id}` nicht gefunden.\n"
+                "💡 Stelle sicher dass du die ID von diesem Server verwendest.",
+                delete_after=10
+            )
             return
 
         view = RaumSprachenView(ctx.author, channel_id, channel.name)
