@@ -50,7 +50,14 @@ def get_col():
     return _get_client()["vhabot"]["raumsprachen"]
 
 
-def get_room_langs(channel_id: int) -> set | None:
+def _make_id(channel_id: int, guild_id: int = None) -> str:
+    """Erstellt einen eindeutigen DB-Key aus guild_id + channel_id."""
+    if guild_id:
+        return f"{guild_id}_{channel_id}"
+    return str(channel_id)  # Fallback für Rückwärtskompatibilität
+
+
+def get_room_langs(channel_id: int, guild_id: int = None) -> set | None:
     """
     Gibt die aktiven Sprachen für einen Raum zurück.
     - None  → kein Eintrag → globale Einstellungen verwenden
@@ -59,7 +66,15 @@ def get_room_langs(channel_id: int) -> set | None:
     """
     try:
         col = get_col()
-        doc = col.find_one({"_id": str(channel_id)})
+        # Zuerst mit guild_id suchen (neues Format)
+        if guild_id:
+            doc = col.find_one({"_id": _make_id(channel_id, guild_id)})
+            if not doc:
+                # Fallback: altes Format ohne guild_id (Migration)
+                doc = col.find_one({"_id": str(channel_id)})
+        else:
+            doc = col.find_one({"_id": str(channel_id)})
+
         if not doc:
             return None  # Kein Eintrag → globale Einstellungen
         if doc.get("disabled", False):
@@ -73,27 +88,27 @@ def get_room_langs(channel_id: int) -> set | None:
         return None
 
 
-def set_room_langs(channel_id: int, langs: set):
+def set_room_langs(channel_id: int, langs: set, guild_id: int = None):
     """Speichert die aktiven Sprachen für einen Raum in MongoDB."""
     try:
         col = get_col()
         col.update_one(
-            {"_id": str(channel_id)},
-            {"$set": {"active": list(langs)}},
+            {"_id": _make_id(channel_id, guild_id)},
+            {"$set": {"active": list(langs), "guild_id": guild_id, "channel_id": channel_id}},
             upsert=True
         )
     except Exception as e:
         log.error(f"Fehler beim Speichern der Raumsprachen: {e}")
 
 
-def delete_room_langs(channel_id: int):
+def delete_room_langs(channel_id: int, guild_id: int = None):
     """Setzt den Raum auf 'deaktiviert' = leere Liste in MongoDB.
     Wichtig: NICHT löschen, sonst fällt app.py auf globale Einstellungen zurück!"""
     try:
         col = get_col()
         col.update_one(
-            {"_id": str(channel_id)},
-            {"$set": {"active": [], "disabled": True}},
+            {"_id": _make_id(channel_id, guild_id)},
+            {"$set": {"active": [], "disabled": True, "guild_id": guild_id, "channel_id": channel_id}},
             upsert=True
         )
     except Exception as e:
@@ -112,17 +127,18 @@ def has_permission(member: discord.Member) -> bool:
 # ────────────────────────────────────────────────
 
 class RaumSprachenView(discord.ui.View):
-    def __init__(self, author: discord.Member, channel_id: int, channel_name: str):
+    def __init__(self, author: discord.Member, channel_id: int, channel_name: str, guild_id: int = None):
         super().__init__(timeout=180)
         self.author = author
         self.channel_id = channel_id
         self.channel_name = channel_name
+        self.guild_id = guild_id
         self._update_buttons()
 
     def _update_buttons(self):
         """Buttons neu erstellen basierend auf aktuellem Status."""
         self.clear_items()
-        active = get_room_langs(self.channel_id) or set()
+        active = get_room_langs(self.channel_id, self.guild_id) or set()
 
         for code, info in ALL_ROOM_LANGS.items():
             is_active = code in active
@@ -166,7 +182,7 @@ class RaumSprachenView(discord.ui.View):
                 return
 
             # Aktuelle Einstellungen laden
-            active = get_room_langs(self.channel_id) or set()
+            active = get_room_langs(self.channel_id, self.guild_id) or set()
 
             if code in active:
                 active.discard(code)
@@ -175,7 +191,7 @@ class RaumSprachenView(discord.ui.View):
                 active.add(code)
                 action = "aktiviert"
 
-            set_room_langs(self.channel_id, active)
+            set_room_langs(self.channel_id, active, self.guild_id)
 
             info = ALL_ROOM_LANGS[code]
             self._update_buttons()
@@ -197,7 +213,7 @@ class RaumSprachenView(discord.ui.View):
             )
             return
 
-        delete_room_langs(self.channel_id)  # Speichert disabled=True in MongoDB
+        delete_room_langs(self.channel_id, self.guild_id)  # Speichert disabled=True in MongoDB
         self._update_buttons()
         embed = self._make_embed()
         await interaction.response.edit_message(embed=embed, view=self)
@@ -217,7 +233,7 @@ class RaumSprachenView(discord.ui.View):
 
         try:
             col = get_col()
-            col.delete_one({"_id": str(self.channel_id)})
+            col.delete_one({"_id": _make_id(self.channel_id, self.guild_id)})
         except Exception as e:
             await interaction.response.send_message(f"❌ Fehler: {e}", ephemeral=True)
             return
@@ -231,7 +247,7 @@ class RaumSprachenView(discord.ui.View):
         )
 
     def _make_embed(self) -> discord.Embed:
-        active = get_room_langs(self.channel_id)
+        active = get_room_langs(self.channel_id, self.guild_id)
         embed = discord.Embed(
             title=f"🌐 Raumsprachen • #{self.channel_name}",
             description=f"Kanal: <#{self.channel_id}>",
@@ -320,7 +336,7 @@ class RaumSprachenCog(commands.Cog):
             )
             return
 
-        view = RaumSprachenView(ctx.author, channel_id, channel.name)
+        view = RaumSprachenView(ctx.author, channel_id, channel.name, guild_id=ctx.guild.id)
         embed = view._make_embed()
         await ctx.send(embed=embed, view=view)
 

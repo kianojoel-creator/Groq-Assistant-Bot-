@@ -353,9 +353,9 @@ try:
             return _sprachen_get_active()
         except Exception:
             return {"DE", "FR"}
-    def _get_room_langs_safe(channel_id: int):
+    def _get_room_langs_safe(channel_id: int, guild_id: int = None):
         try:
-            return _raumsprachen_get_room(channel_id)
+            return _raumsprachen_get_room(channel_id, guild_id)
         except Exception:
             return None
 except Exception:
@@ -849,7 +849,7 @@ async def on_message(message: discord.Message):
         # Raum hat KEINE Einstellungen → globale Sprachen nutzen (normales Verhalten)
         # Raum wurde explizit deaktiviert (leere Liste) → gar nicht übersetzen
         # ── Raum-spezifische Sprachen prüfen ──
-        room_langs = _get_room_langs_safe(message.channel.id)
+        room_langs = _get_room_langs_safe(message.channel.id, message.guild.id if message.guild else None)
 
         if room_langs is not None:
             if len(room_langs) == 0:
