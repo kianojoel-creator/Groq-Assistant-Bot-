@@ -1,5 +1,5 @@
 discord.py
-groq
 flask
-aiohttp
+google-genai
 pymongo
+aiohttp
