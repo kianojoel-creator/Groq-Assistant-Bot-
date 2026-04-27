@@ -132,6 +132,7 @@ async def gemini_call(model: str, messages: list, temperature: float = 0.1,
         temperature=temperature,
         max_output_tokens=max_tokens,
         system_instruction=system_text,
+        thinking_config=types.ThinkingConfig(thinking_budget=0),  # Thinking deaktiviert — unnötig für Übersetzungen
     )
 
     for attempt in range(retries):
@@ -176,6 +177,43 @@ async def gemini_call(model: str, messages: list, temperature: float = 0.1,
                     raise
 
     raise Exception("Gemini nicht erreichbar nach mehreren Versuchen")
+
+
+async def gemini_call_thinking(model: str, messages: list, temperature: float = 0.7,
+                               max_tokens: int = 1000) -> str:
+    """
+    Gemini-Call MIT aktiviertem Thinking — nur für !ai verwendet.
+    Für Übersetzungen → gemini_call() mit thinking_budget=0 verwenden.
+    """
+    loop = asyncio.get_event_loop()
+
+    system_text = None
+    contents = []
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"]
+        if role == "system":
+            system_text = content
+        elif role == "user":
+            if isinstance(content, str):
+                contents.append(types.Content(role="user", parts=[types.Part(text=content)]))
+
+    config = types.GenerateContentConfig(
+        temperature=temperature,
+        max_output_tokens=max_tokens,
+        system_instruction=system_text,
+        # Thinking aktiv (kein thinking_budget gesetzt) — gut für komplexe Fragen
+    )
+
+    resp = await loop.run_in_executor(
+        None,
+        lambda: gemini_client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=config,
+        )
+    )
+    return resp.text.strip()
 
 
 # ────────────────────────────────────────────────
@@ -702,7 +740,7 @@ async def cmd_ai(ctx, *, question: str = None):
     footer = f"Antwort in {lang}"
 
     try:
-        answer = await gemini_call(
+        answer = await gemini_call_thinking(
             model=GEMINI_MODEL,
             temperature=0.7,
             max_tokens=1000,
