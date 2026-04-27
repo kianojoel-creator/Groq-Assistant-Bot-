@@ -15,7 +15,7 @@ import time
 
 log = logging.getLogger("VHABot.Bild")
 
-VISION_MODEL = "gemini-2.0-flash"
+VISION_MODEL = "gemini-2.5-flash-lite"
 
 IMAGE_COOLDOWN = 15.0
 user_last_image: dict[int, float] = {}

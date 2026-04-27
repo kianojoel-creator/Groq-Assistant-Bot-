@@ -18,8 +18,8 @@ import asyncio
 
 log = logging.getLogger("VHABot.Event")
 
-VISION_MODEL = "gemini-2.0-flash"
-GEMINI_MODEL = "gemini-2.0-flash"
+VISION_MODEL = "gemini-2.5-flash-lite"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 
 LOGO_URL = (
     "https://cdn.discordapp.com/attachments/1484252260614537247/"
