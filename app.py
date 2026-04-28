@@ -372,10 +372,40 @@ async def translate_all(text: str, target_langs: list) -> dict:
 
         parsed = _json.loads(clean)
         translations = {}
+        max_len = max(len(text) * 6, 500)
+        original_words = set(re.sub(r'[^\w\s]', '', text.lower()).split())
+
         for code in codes:
             val = parsed.get(code, "").strip()
-            if val and val.lower() != text.lower():
-                translations[code] = val
+            if not val:
+                continue
+
+            # Exakte Kopie
+            if val.lower() == text.lower():
+                log.warning(f"Übersetzung identisch mit Original ({code}) — verworfen")
+                continue
+
+            # Ähnlichkeitsprüfung: >70% Wortübereinstimmung → nicht übersetzt
+            if len(original_words) >= 3:
+                val_words = set(re.sub(r'[^\w\s]', '', val.lower()).split())
+                overlap = len(original_words & val_words) / len(original_words)
+                if overlap > 0.70:
+                    log.warning(f"Übersetzung zu ähnlich zum Original ({code}): {overlap:.0%} — verworfen")
+                    continue
+
+            # Loop-Erkennung
+            words = val.split()
+            if words:
+                most_common = max(set(words), key=words.count)
+                if words.count(most_common) > 15:
+                    log.warning(f"Loop-Übersetzung erkannt ({code}): '{most_common}' x{words.count(most_common)} — verworfen")
+                    continue
+
+            # Längen-Check
+            if len(val) > max_len:
+                val = val[:max_len]
+
+            translations[code] = val
         return translations
 
     except Exception as e:
