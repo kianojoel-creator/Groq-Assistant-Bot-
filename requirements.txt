@@ -3,3 +3,4 @@ flask
 google-genai
 pymongo
 aiohttp
+langdetect
