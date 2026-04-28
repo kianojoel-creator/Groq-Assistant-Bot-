@@ -12,6 +12,14 @@ from flask import Flask
 from google import genai
 from google.genai import types
 
+# Lokale Spracherkennung - optional
+try:
+    from langdetect import detect_langs, DetectorFactory
+    DetectorFactory.seed = 0
+    LANGDETECT_AVAILABLE = True
+except ImportError:
+    LANGDETECT_AVAILABLE = False
+
 # ────────────────────────────────────────────────
 # LOGGING
 # ────────────────────────────────────────────────
@@ -58,14 +66,16 @@ gemini_semaphore = asyncio.Semaphore(4)
 import concurrent.futures as _futures
 _gemini_executor = _futures.ThreadPoolExecutor(max_workers=6, thread_name_prefix="gemini")
 
-# Globale Rate-Limit-Pause
-_gemini_rate_limit_until: float = 0.0
+# Globale Rate-Limit entfernt - war Ursache für Blockaden
 
 user_last_translation: dict[int, float] = {}
 TRANSLATION_COOLDOWN = 8.0
 
 # Token-Zähler für den Tag
 token_counter = {"prompt": 0, "completion": 0, "total": 0}
+
+# Caches
+translation_cache: dict[str, dict] = {}
 
 
 def run_flask():
@@ -137,17 +147,14 @@ async def gemini_call(model: str, messages: list, temperature: float = 0.1,
         max_output_tokens=max_tokens,
         system_instruction=system_text,
         thinking_config=types.ThinkingConfig(thinking_budget=0),  # Thinking deaktiviert — unnötig für Übersetzungen
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),  # AFC aus!
     )
 
     for attempt in range(retries):
-        now = asyncio.get_event_loop().time()
-        pause = _gemini_rate_limit_until - now
-        if pause > 0:
-            log.info(f"Rate-Limit-Pause: warte {pause:.1f}s")
-            await asyncio.sleep(pause)
 
         async with gemini_semaphore:
             try:
+                start = asyncio.get_event_loop().time()
                 resp = await loop.run_in_executor(
                     _gemini_executor,
                     lambda: gemini_client.models.generate_content(
@@ -156,26 +163,26 @@ async def gemini_call(model: str, messages: list, temperature: float = 0.1,
                         config=config,
                     )
                 )
+                duration = asyncio.get_event_loop().time() - start
                 if resp.usage_metadata:
                     total = (resp.usage_metadata.prompt_token_count or 0) + \
                             (resp.usage_metadata.candidates_token_count or 0)
                     token_counter["prompt"]     += resp.usage_metadata.prompt_token_count or 0
                     token_counter["completion"] += resp.usage_metadata.candidates_token_count or 0
                     token_counter["total"]      += total
-                    log.info(f"Tokens: +{total} (heute gesamt: {token_counter['total']})")
+                    log.info(f"Tokens: +{total} (heute gesamt: {token_counter['total']}) | Dauer: {duration:.2f}s")
                 return resp.text.strip()
 
             except Exception as e:
-                err = str(e)
-                if "429" in err or "quota" in err.lower() or "rate" in err.lower():
-                    _gemini_rate_limit_until = asyncio.get_event_loop().time() + wait
-                    log.warning(f"Rate-Limit (Versuch {attempt+1}/{retries}) – globale Pause {wait}s")
+                err = str(e).lower()
+                if "429" in err or "quota" in err or "resource_exhausted" in err or "rate" in err:
+                    log.warning(f"Rate-Limit (Versuch {attempt+1}/{retries}) – warte {wait}s")
                     await asyncio.sleep(wait)
                     wait = min(wait * 2, 60)
-                elif "5" in err[:3] or "server" in err.lower():
+                elif "503" in err or "500" in err or "502" in err or "unavailable" in err or "server" in err:
                     log.warning(f"Server-Fehler (Versuch {attempt+1}/{retries}) – warte {wait}s")
                     await asyncio.sleep(wait)
-                    wait *= 2
+                    wait = min(wait * 2, 30)
                 else:
                     log.error(f"Gemini-Fehler: {e}")
                     raise
@@ -206,9 +213,11 @@ async def gemini_call_thinking(model: str, messages: list, temperature: float = 
         temperature=temperature,
         max_output_tokens=max_tokens,
         system_instruction=system_text,
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         # Thinking aktiv (kein thinking_budget gesetzt) — gut für komplexe Fragen
     )
 
+    start = asyncio.get_event_loop().time()
     resp = await loop.run_in_executor(
         _gemini_executor,
         lambda: gemini_client.models.generate_content(
@@ -217,6 +226,8 @@ async def gemini_call_thinking(model: str, messages: list, temperature: float = 
             config=config,
         )
     )
+    duration = asyncio.get_event_loop().time() - start
+    log.info(f"AI-Thinking Call dauerte {duration:.2f}s")
     return resp.text.strip()
 
 
@@ -274,44 +285,35 @@ async def detect_language_llm(text: str) -> str:
     if key in lang_cache:
         return lang_cache[key]
 
-    # Nur jetzt: LLM-Call (nur für lateinische Schrift nötig)
-    try:
-        result = await gemini_call(
-            model=GEMINI_MODEL,
-            temperature=0.0,
-            max_tokens=5,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Detect the language. Reply ONLY with the ISO 639-1 code in uppercase "
-                        "(DE, FR, PT, EN, ES, RU, JA, ZH, KO). "
-                        "If neutral/unclear reply: OTHER. No explanation."
-                    )
-                },
-                {"role": "user", "content": stripped[:200]}
-            ]
-        )
-        result = result.upper().strip()
-        if result.startswith("PT"):
-            lang = "PT"
-        elif re.match(r"^[A-Z]{2}$", result):
-            lang = result
-        else:
-            m = re.search(r"\b([A-Z]{2})\b", result)
-            lang = m.group(1) if m else "OTHER"
+    # LOKAL statt LLM-Call
+    lang = "OTHER"
+    if LANGDETECT_AVAILABLE:
+        try:
+            langs = detect_langs(stripped)
+            code = langs[0].lang.upper()
+            mapping = {"PT": "PT", "EN": "EN", "DE": "DE", "FR": "FR", "ES": "ES", "RU": "RU", "JA": "JA", "ZH-CN": "ZH", "ZH": "ZH", "KO": "KO"}
+            lang = mapping.get(code, "OTHER")
+        except:
+            lang = "OTHER"
+    else:
+        # Fallback Heuristik - kein API Call
+        txt = stripped.lower()
+        if re.search(r'\b(der|die|das|und|ich|nicht|ein|ist)\b', txt): lang = "DE"
+        elif re.search(r'\b(the|and|you|for|with|are)\b', txt): lang = "EN"
+        elif re.search(r'\b(le|la|et|vous|pour|avec|est)\b', txt): lang = "FR"
+        elif re.search(r'\b(o|a|e|que|para|com|uma|não)\b', txt): lang = "PT"
+        elif re.search(r'\b(el|la|y|que|para|con|una)\b', txt): lang = "ES"
 
-        known = {"DE","FR","PT","EN","ES","RU","JA","ZH","KO","OTHER"}
-        if lang in known:
-            lang_cache[key] = lang
-            if len(lang_cache) > 800:
-                for k in list(lang_cache.keys())[:200]:
-                    del lang_cache[k]
-        return lang
+    known = {"DE","FR","PT","EN","ES","RU","JA","ZH","KO","OTHER"}
+    if lang not in known:
+        lang = "OTHER"
 
-    except Exception as e:
-        log.error(f"Spracherkennungs-Fehler: {e}")
-        return "OTHER"
+    if lang in known:
+        lang_cache[key] = lang
+        if len(lang_cache) > 800:
+            for k in list(lang_cache.keys())[:200]:
+                del lang_cache[k]
+    return lang
 
 
 # ────────────────────────────────────────────────
@@ -328,8 +330,13 @@ async def translate_all(text: str, target_langs: list) -> dict:
     if not target_langs:
         return {}
 
+    codes = [code for code, _, _ in target_langs]
+    cache_key = f"{text[:200]}_{'_'.join(codes)}"
+    if cache_key in translation_cache:
+        log.info(f"Cache-Hit für Übersetzung")
+        return translation_cache[cache_key]
+
     codes_str  = ", ".join(f"{code}={lang_name}" for code, lang_name, _ in target_langs)
-    codes      = [code for code, _, _ in target_langs]
     json_keys  = ", ".join(f'"{code}": "..."' for code in codes)
 
     # Token-Limit dynamisch: ~1.5 Tokens/Zeichen x Anzahl Sprachen, mind. 1500, max. 6000
@@ -406,6 +413,14 @@ async def translate_all(text: str, target_langs: list) -> dict:
                 val = val[:max_len]
 
             translations[code] = val
+
+        # Cache speichern
+        if translations:
+            translation_cache[cache_key] = translations
+            if len(translation_cache) > 500:
+                for k in list(translation_cache.keys())[:100]:
+                    del translation_cache[k]
+
         return translations
 
     except Exception as e:
