@@ -12,14 +12,6 @@ from flask import Flask
 from google import genai
 from google.genai import types
 
-# Lokale Spracherkennung - optional
-try:
-    from langdetect import detect_langs, DetectorFactory
-    DetectorFactory.seed = 0
-    LANGDETECT_AVAILABLE = True
-except ImportError:
-    LANGDETECT_AVAILABLE = False
-
 # ────────────────────────────────────────────────
 # LOGGING
 # ────────────────────────────────────────────────
@@ -62,20 +54,14 @@ gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 # Semaphore: max. 4 gleichzeitige Gemini-Calls
 gemini_semaphore = asyncio.Semaphore(4)
 
-# Eigener ThreadPool für Gemini-Calls (verhindert Blockierung des Default-Pools)
-import concurrent.futures as _futures
-_gemini_executor = _futures.ThreadPoolExecutor(max_workers=6, thread_name_prefix="gemini")
-
-# Globale Rate-Limit entfernt - war Ursache für Blockaden
+# Globale Rate-Limit-Pause
+_gemini_rate_limit_until: float = 0.0
 
 user_last_translation: dict[int, float] = {}
 TRANSLATION_COOLDOWN = 8.0
 
 # Token-Zähler für den Tag
 token_counter = {"prompt": 0, "completion": 0, "total": 0}
-
-# Caches
-translation_cache: dict[str, dict] = {}
 
 
 def run_flask():
@@ -147,42 +133,45 @@ async def gemini_call(model: str, messages: list, temperature: float = 0.1,
         max_output_tokens=max_tokens,
         system_instruction=system_text,
         thinking_config=types.ThinkingConfig(thinking_budget=0),  # Thinking deaktiviert — unnötig für Übersetzungen
-        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),  # AFC aus!
     )
 
     for attempt in range(retries):
+        now = asyncio.get_event_loop().time()
+        pause = _gemini_rate_limit_until - now
+        if pause > 0:
+            log.info(f"Rate-Limit-Pause: warte {pause:.1f}s")
+            await asyncio.sleep(pause)
 
         async with gemini_semaphore:
             try:
-                start = asyncio.get_event_loop().time()
                 resp = await loop.run_in_executor(
-                    _gemini_executor,
+                    None,
                     lambda: gemini_client.models.generate_content(
                         model=model,
                         contents=contents,
                         config=config,
                     )
                 )
-                duration = asyncio.get_event_loop().time() - start
                 if resp.usage_metadata:
                     total = (resp.usage_metadata.prompt_token_count or 0) + \
                             (resp.usage_metadata.candidates_token_count or 0)
                     token_counter["prompt"]     += resp.usage_metadata.prompt_token_count or 0
                     token_counter["completion"] += resp.usage_metadata.candidates_token_count or 0
                     token_counter["total"]      += total
-                    log.info(f"Tokens: +{total} (heute gesamt: {token_counter['total']}) | Dauer: {duration:.2f}s")
+                    log.info(f"Tokens: +{total} (heute gesamt: {token_counter['total']})")
                 return resp.text.strip()
 
             except Exception as e:
-                err = str(e).lower()
-                if "429" in err or "quota" in err or "resource_exhausted" in err or "rate" in err:
-                    log.warning(f"Rate-Limit (Versuch {attempt+1}/{retries}) – warte {wait}s")
+                err = str(e)
+                if "429" in err or "quota" in err.lower() or "rate" in err.lower():
+                    _gemini_rate_limit_until = asyncio.get_event_loop().time() + wait
+                    log.warning(f"Rate-Limit (Versuch {attempt+1}/{retries}) – globale Pause {wait}s")
                     await asyncio.sleep(wait)
                     wait = min(wait * 2, 60)
-                elif "503" in err or "500" in err or "502" in err or "unavailable" in err or "server" in err:
+                elif "5" in err[:3] or "server" in err.lower():
                     log.warning(f"Server-Fehler (Versuch {attempt+1}/{retries}) – warte {wait}s")
                     await asyncio.sleep(wait)
-                    wait = min(wait * 2, 30)
+                    wait *= 2
                 else:
                     log.error(f"Gemini-Fehler: {e}")
                     raise
@@ -213,21 +202,17 @@ async def gemini_call_thinking(model: str, messages: list, temperature: float = 
         temperature=temperature,
         max_output_tokens=max_tokens,
         system_instruction=system_text,
-        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         # Thinking aktiv (kein thinking_budget gesetzt) — gut für komplexe Fragen
     )
 
-    start = asyncio.get_event_loop().time()
     resp = await loop.run_in_executor(
-        _gemini_executor,
+        None,
         lambda: gemini_client.models.generate_content(
             model=model,
             contents=contents,
             config=config,
         )
     )
-    duration = asyncio.get_event_loop().time() - start
-    log.info(f"AI-Thinking Call dauerte {duration:.2f}s")
     return resp.text.strip()
 
 
@@ -285,35 +270,44 @@ async def detect_language_llm(text: str) -> str:
     if key in lang_cache:
         return lang_cache[key]
 
-    # LOKAL statt LLM-Call
-    lang = "OTHER"
-    if LANGDETECT_AVAILABLE:
-        try:
-            langs = detect_langs(stripped)
-            code = langs[0].lang.upper()
-            mapping = {"PT": "PT", "EN": "EN", "DE": "DE", "FR": "FR", "ES": "ES", "RU": "RU", "JA": "JA", "ZH-CN": "ZH", "ZH": "ZH", "KO": "KO"}
-            lang = mapping.get(code, "OTHER")
-        except:
-            lang = "OTHER"
-    else:
-        # Fallback Heuristik - kein API Call
-        txt = stripped.lower()
-        if re.search(r'\b(der|die|das|und|ich|nicht|ein|ist)\b', txt): lang = "DE"
-        elif re.search(r'\b(the|and|you|for|with|are)\b', txt): lang = "EN"
-        elif re.search(r'\b(le|la|et|vous|pour|avec|est)\b', txt): lang = "FR"
-        elif re.search(r'\b(o|a|e|que|para|com|uma|não)\b', txt): lang = "PT"
-        elif re.search(r'\b(el|la|y|que|para|con|una)\b', txt): lang = "ES"
+    # Nur jetzt: LLM-Call (nur für lateinische Schrift nötig)
+    try:
+        result = await gemini_call(
+            model=GEMINI_MODEL,
+            temperature=0.0,
+            max_tokens=5,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Detect the language. Reply ONLY with the ISO 639-1 code in uppercase "
+                        "(DE, FR, PT, EN, ES, IT, TR, PL, NL). "
+                        "If neutral/unclear reply: OTHER. No explanation."
+                    )
+                },
+                {"role": "user", "content": stripped[:200]}
+            ]
+        )
+        result = result.upper().strip()
+        if result.startswith("PT"):
+            lang = "PT"
+        elif re.match(r"^[A-Z]{2}$", result):
+            lang = result
+        else:
+            m = re.search(r"\b([A-Z]{2})\b", result)
+            lang = m.group(1) if m else "OTHER"
 
-    known = {"DE","FR","PT","EN","ES","RU","JA","ZH","KO","OTHER"}
-    if lang not in known:
-        lang = "OTHER"
+        known = {"DE","FR","PT","EN","ES","IT","TR","PL","NL","OTHER"}
+        if lang in known:
+            lang_cache[key] = lang
+            if len(lang_cache) > 800:
+                for k in list(lang_cache.keys())[:200]:
+                    del lang_cache[k]
+        return lang
 
-    if lang in known:
-        lang_cache[key] = lang
-        if len(lang_cache) > 800:
-            for k in list(lang_cache.keys())[:200]:
-                del lang_cache[k]
-    return lang
+    except Exception as e:
+        log.error(f"Spracherkennungs-Fehler: {e}")
+        return "OTHER"
 
 
 # ────────────────────────────────────────────────
@@ -330,13 +324,8 @@ async def translate_all(text: str, target_langs: list) -> dict:
     if not target_langs:
         return {}
 
-    codes = [code for code, _, _ in target_langs]
-    cache_key = f"{text[:200]}_{'_'.join(codes)}"
-    if cache_key in translation_cache:
-        log.info(f"Cache-Hit für Übersetzung")
-        return translation_cache[cache_key]
-
     codes_str  = ", ".join(f"{code}={lang_name}" for code, lang_name, _ in target_langs)
+    codes      = [code for code, _, _ in target_langs]
     json_keys  = ", ".join(f'"{code}": "..."' for code in codes)
 
     # Token-Limit dynamisch: ~1.5 Tokens/Zeichen x Anzahl Sprachen, mind. 1500, max. 6000
@@ -351,16 +340,16 @@ async def translate_all(text: str, target_langs: list) -> dict:
                 {
                     "role": "system",
                     "content": (
-                        f"You are a professional translator. Your only job is to translate text accurately.\n"
-                        f"The text comes from a Discord chat of a mobile game alliance (Mecha Fire).\n\n"
-                        f"Translate the text into these {len(codes)} languages: {codes_str}.\n\n"
-                        f"STRICT RULES — follow exactly:\n"
-                        f"1. Translate the MEANING faithfully — do not paraphrase, summarize, or change the message\n"
-                        f"2. Keep the same tone: if the original is funny, keep it funny; if serious, keep it serious\n"
-                        f"3. Keep these UNTRANSLATED: R1 R2 R3 R4 R5, coordinates (X:123 Y:456), server numbers, player names, @mentions, alliance names\n"
-                        f"4. Emojis stay as-is\n"
-                        f"5. Do NOT add explanations, notes, or extra text\n"
-                        f"6. Output ONLY valid JSON with these exact keys:\n"
+                        f"You are a precise translator for a mobile strategy game community (alliance chat).\n"
+                        f"Context: Players discuss war coordination, attacks, building upgrades, events, and alliance management.\n"
+                        f"Common terms to keep untranslated: R1/R2/R3/R4/R5 (rank titles), coordinates like R1 X:123 Y:456, server numbers, player names.\n\n"
+                        f"Translate the text into these languages: {codes_str}.\n"
+                        f"Rules:\n"
+                        f"- Translate naturally and colloquially, like a real player would write\n"
+                        f"- Keep game-specific terms, names, coordinates, and numbers as-is\n"
+                        f"- If a word is unclear, choose the most natural game-chat interpretation\n"
+                        f"- Do NOT add explanations, notes, or markdown\n"
+                        f"- Reply ONLY with a valid JSON object, no extra text before or after:\n"
                         f"{{{json_keys}}}"
                     )
                 },
@@ -379,48 +368,10 @@ async def translate_all(text: str, target_langs: list) -> dict:
 
         parsed = _json.loads(clean)
         translations = {}
-        max_len = max(len(text) * 6, 500)
-        original_words = set(re.sub(r'[^\w\s]', '', text.lower()).split())
-
         for code in codes:
             val = parsed.get(code, "").strip()
-            if not val:
-                continue
-
-            # Exakte Kopie
-            if val.lower() == text.lower():
-                log.warning(f"Übersetzung identisch mit Original ({code}) — verworfen")
-                continue
-
-            # Ähnlichkeitsprüfung: >70% Wortübereinstimmung → nicht übersetzt
-            if len(original_words) >= 3:
-                val_words = set(re.sub(r'[^\w\s]', '', val.lower()).split())
-                overlap = len(original_words & val_words) / len(original_words)
-                if overlap > 0.70:
-                    log.warning(f"Übersetzung zu ähnlich zum Original ({code}): {overlap:.0%} — verworfen")
-                    continue
-
-            # Loop-Erkennung
-            words = val.split()
-            if words:
-                most_common = max(set(words), key=words.count)
-                if words.count(most_common) > 15:
-                    log.warning(f"Loop-Übersetzung erkannt ({code}): '{most_common}' x{words.count(most_common)} — verworfen")
-                    continue
-
-            # Längen-Check
-            if len(val) > max_len:
-                val = val[:max_len]
-
-            translations[code] = val
-
-        # Cache speichern
-        if translations:
-            translation_cache[cache_key] = translations
-            if len(translation_cache) > 500:
-                for k in list(translation_cache.keys())[:100]:
-                    del translation_cache[k]
-
+            if val and val.lower() != text.lower():
+                translations[code] = val
         return translations
 
     except Exception as e:
@@ -488,8 +439,9 @@ except Exception:
 
 LANG_FLAGS = {
     "DE": "🇩🇪", "FR": "🇫🇷", "PT": "🇧🇷", "EN": "🇬🇧",
-    "JA": "🇯🇵", "ES": "🇪🇸", "RU": "🇷🇺",
-    "ZH": "🇨🇳", "KO": "🇰🇷",
+    "JA": "🇯🇵", "ES": "🇪🇸", "IT": "🇮🇹", "RU": "🇷🇺",
+    "ZH": "🇨🇳", "AR": "🇸🇦", "KO": "🇰🇷", "TR": "🇹🇷",
+    "PL": "🇵🇱", "NL": "🇳🇱",
 }
 
 LANG_NAMES = {
@@ -790,20 +742,15 @@ async def cmd_ai(ctx, *, question: str = None):
     try:
         answer = await gemini_call_thinking(
             model=GEMINI_MODEL,
-            temperature=0.8,
+            temperature=0.7,
             max_tokens=1000,
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "Du bist der KI-Assistent der VHA Alliance, einem Bündnis im Mobile-Strategie-Spiel Mecha Fire. "
-                        "Antworte IMMER in derselben Sprache wie die Frage gestellt wurde. "
-                        "Gib deine Antwort direkt — kein 'Hier ist meine Antwort:', kein 'Natürlich!', keine Einleitung. "
-                        "Einfach direkt zur Sache.\n\n"
-                        "Wenn jemand eine absurde, unmögliche oder witzige Frage stellt (z.B. 'Kannst du mir einen Kaffee machen?', "
-                        "'Wie ist das Wetter auf dem Mars?', 'Heirate mich!'), antworte mit trockenem Humor und einem Augenzwinkern — "
-                        "als wärst du ein leicht genervter aber sympathischer Assistent der sowas schon 100x gehört hat. "
-                        "Bleib dabei kurz und witzig, nicht langweilig erklärend."
+                        "Du bist ein freundlicher VHA-Alliance Assistent. "
+                        "Antworte IMMER in derselben Sprache wie die Frage. "
+                        "Natürlich und direkt."
                     )
                 },
                 {"role": "user", "content": question.strip()}
@@ -815,8 +762,9 @@ async def cmd_ai(ctx, *, question: str = None):
         color = 0xFF0000
         footer = "Fehler"
 
-    embed = discord.Embed(title=f"VHA KI {flag}", description=answer, color=color)
+    embed = discord.Embed(title=f"VHA KI • Antwort {flag}", description=answer, color=color)
     embed.set_author(name="VHA ALLIANCE", icon_url=LOGO_URL)
+    embed.add_field(name="→ Deine Frage", value=question[:900], inline=False)
     embed.set_footer(text=f"VHA • Gemini • {GEMINI_MODEL} • {footer}", icon_url=LOGO_URL)
     await thinking.edit(embed=embed)
 
@@ -1097,7 +1045,10 @@ async def on_message(message: discord.Message):
             ("ZH", "Chinese",              "🇨🇳 中文"),
             ("KO", "Korean",               "🇰🇷 한국어"),
             ("ES", "Spanish",              "🇪🇸 Español"),
+            ("IT", "Italian",              "🇮🇹 Italiano"),
             ("RU", "Russian",              "🇷🇺 Русский"),
+            ("AR", "Arabic",               "🇸🇦 العربية"),
+            ("TR", "Turkish",              "🇹🇷 Türkçe"),
         ]
 
         # Haupt-Bot übersetzt NUR in seine aktiven Sprachen
