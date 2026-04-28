@@ -54,6 +54,10 @@ gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 # Semaphore: max. 4 gleichzeitige Gemini-Calls
 gemini_semaphore = asyncio.Semaphore(4)
 
+# Eigener ThreadPool für Gemini-Calls (verhindert Blockierung des Default-Pools)
+import concurrent.futures as _futures
+_gemini_executor = _futures.ThreadPoolExecutor(max_workers=6, thread_name_prefix="gemini")
+
 # Globale Rate-Limit-Pause
 _gemini_rate_limit_until: float = 0.0
 
@@ -145,7 +149,7 @@ async def gemini_call(model: str, messages: list, temperature: float = 0.1,
         async with gemini_semaphore:
             try:
                 resp = await loop.run_in_executor(
-                    None,
+                    _gemini_executor,
                     lambda: gemini_client.models.generate_content(
                         model=model,
                         contents=contents,
@@ -206,7 +210,7 @@ async def gemini_call_thinking(model: str, messages: list, temperature: float = 
     )
 
     resp = await loop.run_in_executor(
-        None,
+        _gemini_executor,
         lambda: gemini_client.models.generate_content(
             model=model,
             contents=contents,
@@ -281,7 +285,7 @@ async def detect_language_llm(text: str) -> str:
                     "role": "system",
                     "content": (
                         "Detect the language. Reply ONLY with the ISO 639-1 code in uppercase "
-                        "(DE, FR, PT, EN, ES, IT, TR, PL, NL). "
+                        "(DE, FR, PT, EN, ES, RU, JA, ZH, KO). "
                         "If neutral/unclear reply: OTHER. No explanation."
                     )
                 },
@@ -297,7 +301,7 @@ async def detect_language_llm(text: str) -> str:
             m = re.search(r"\b([A-Z]{2})\b", result)
             lang = m.group(1) if m else "OTHER"
 
-        known = {"DE","FR","PT","EN","ES","IT","TR","PL","NL","OTHER"}
+        known = {"DE","FR","PT","EN","ES","RU","JA","ZH","KO","OTHER"}
         if lang in known:
             lang_cache[key] = lang
             if len(lang_cache) > 800:
@@ -340,16 +344,16 @@ async def translate_all(text: str, target_langs: list) -> dict:
                 {
                     "role": "system",
                     "content": (
-                        f"You are a precise translator for a mobile strategy game community (alliance chat).\n"
-                        f"Context: Players discuss war coordination, attacks, building upgrades, events, and alliance management.\n"
-                        f"Common terms to keep untranslated: R1/R2/R3/R4/R5 (rank titles), coordinates like R1 X:123 Y:456, server numbers, player names.\n\n"
-                        f"Translate the text into these languages: {codes_str}.\n"
-                        f"Rules:\n"
-                        f"- Translate naturally and colloquially, like a real player would write\n"
-                        f"- Keep game-specific terms, names, coordinates, and numbers as-is\n"
-                        f"- If a word is unclear, choose the most natural game-chat interpretation\n"
-                        f"- Do NOT add explanations, notes, or markdown\n"
-                        f"- Reply ONLY with a valid JSON object, no extra text before or after:\n"
+                        f"You are a gaming community translator for 'Mecha Fire', a mobile strategy game.\n"
+                        f"Players discuss: war attacks, troop coordination, building upgrades, alliance events, diplomacy.\n"
+                        f"NEVER translate these: R1 R2 R3 R4 R5 (player ranks), coordinates (X:123 Y:456), server IDs, player names, alliance names, @mentions.\n\n"
+                        f"Translate the following text into these {len(codes)} languages: {codes_str}.\n\n"
+                        f"CRITICAL RULES:\n"
+                        f"- Write like a real gamer texting — casual, short, natural\n"
+                        f"- Preserve the original tone (urgent, friendly, joking, etc.)\n"
+                        f"- Do NOT translate proper nouns, abbreviations, or game UI terms\n"
+                        f"- Do NOT add any text outside the JSON\n"
+                        f"- Output ONLY this JSON, keys exactly as shown:\n"
                         f"{{{json_keys}}}"
                     )
                 },
@@ -439,9 +443,8 @@ except Exception:
 
 LANG_FLAGS = {
     "DE": "🇩🇪", "FR": "🇫🇷", "PT": "🇧🇷", "EN": "🇬🇧",
-    "JA": "🇯🇵", "ES": "🇪🇸", "IT": "🇮🇹", "RU": "🇷🇺",
-    "ZH": "🇨🇳", "AR": "🇸🇦", "KO": "🇰🇷", "TR": "🇹🇷",
-    "PL": "🇵🇱", "NL": "🇳🇱",
+    "JA": "🇯🇵", "ES": "🇪🇸", "RU": "🇷🇺",
+    "ZH": "🇨🇳", "KO": "🇰🇷",
 }
 
 LANG_NAMES = {
@@ -742,15 +745,20 @@ async def cmd_ai(ctx, *, question: str = None):
     try:
         answer = await gemini_call_thinking(
             model=GEMINI_MODEL,
-            temperature=0.7,
+            temperature=0.8,
             max_tokens=1000,
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "Du bist ein freundlicher VHA-Alliance Assistent. "
-                        "Antworte IMMER in derselben Sprache wie die Frage. "
-                        "Natürlich und direkt."
+                        "Du bist der KI-Assistent der VHA Alliance, einem Bündnis im Mobile-Strategie-Spiel Mecha Fire. "
+                        "Antworte IMMER in derselben Sprache wie die Frage gestellt wurde. "
+                        "Gib deine Antwort direkt — kein 'Hier ist meine Antwort:', kein 'Natürlich!', keine Einleitung. "
+                        "Einfach direkt zur Sache.\n\n"
+                        "Wenn jemand eine absurde, unmögliche oder witzige Frage stellt (z.B. 'Kannst du mir einen Kaffee machen?', "
+                        "'Wie ist das Wetter auf dem Mars?', 'Heirate mich!'), antworte mit trockenem Humor und einem Augenzwinkern — "
+                        "als wärst du ein leicht genervter aber sympathischer Assistent der sowas schon 100x gehört hat. "
+                        "Bleib dabei kurz und witzig, nicht langweilig erklärend."
                     )
                 },
                 {"role": "user", "content": question.strip()}
@@ -762,9 +770,8 @@ async def cmd_ai(ctx, *, question: str = None):
         color = 0xFF0000
         footer = "Fehler"
 
-    embed = discord.Embed(title=f"VHA KI • Antwort {flag}", description=answer, color=color)
+    embed = discord.Embed(title=f"VHA KI {flag}", description=answer, color=color)
     embed.set_author(name="VHA ALLIANCE", icon_url=LOGO_URL)
-    embed.add_field(name="→ Deine Frage", value=question[:900], inline=False)
     embed.set_footer(text=f"VHA • Gemini • {GEMINI_MODEL} • {footer}", icon_url=LOGO_URL)
     await thinking.edit(embed=embed)
 
@@ -1045,10 +1052,7 @@ async def on_message(message: discord.Message):
             ("ZH", "Chinese",              "🇨🇳 中文"),
             ("KO", "Korean",               "🇰🇷 한국어"),
             ("ES", "Spanish",              "🇪🇸 Español"),
-            ("IT", "Italian",              "🇮🇹 Italiano"),
             ("RU", "Russian",              "🇷🇺 Русский"),
-            ("AR", "Arabic",               "🇸🇦 العربية"),
-            ("TR", "Turkish",              "🇹🇷 Türkçe"),
         ]
 
         # Haupt-Bot übersetzt NUR in seine aktiven Sprachen
