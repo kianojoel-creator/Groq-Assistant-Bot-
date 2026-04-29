@@ -58,7 +58,7 @@ gemini_semaphore = asyncio.Semaphore(4)
 _gemini_rate_limit_until: float = 0.0
 
 user_last_translation: dict[int, float] = {}
-TRANSLATION_COOLDOWN = 8.0
+TRANSLATION_COOLDOWN = 2.0  # reduziert von 8.0 für Gemini
 
 # Token-Zähler für den Tag
 token_counter = {"prompt": 0, "completion": 0, "total": 0}
