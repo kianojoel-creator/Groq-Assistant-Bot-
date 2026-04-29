@@ -341,12 +341,8 @@ async def translate_all(text: str, target_langs: list) -> dict:
                 {
                     "role": "system",
                     "content": (
-                                                f"You are a human translator for a close Discord community. Your job: translate naturally, like a bilingual friend — NOT word-for-word. Preserve tone, emotion, humor, sarcasm, intimacy, and implied meaning. Adapt idioms to sound native. Keep untranslated: names, @mentions, emojis, game terms (R1/R2/R3/R4/R5, coordinates like X:123 Y:456, server numbers), slang that should stay. For DE->FR: 'genießen'=apprecier/savourer (never profiter), 'verlangen'=exiger, 'mögen'=aimer bien. For FR->DE: keep emotional nuance. For all languages, use natural spoken language, not formal textbook style. Output ONLY the translation — no explanations.
-
-"
-                        f"Translate the text into these languages: {codes_str}.
-"
-
+                        f"You are a human translator for Discord. Translate naturally like a bilingual friend, not word for word. Preserve tone, emotion, humor, and intimacy. Adapt idioms to sound native. Keep names, mentions, emojis, and game terms unchanged. Use natural spoken language.\n\n"
+                        f"Translate into: {codes_str}.\n"
                         f"Rules:\n"
                         f"- Translate naturally and colloquially, like a real player would write\n"
                         f"- Keep game-specific terms, names, coordinates, and numbers as-is\n"
@@ -393,7 +389,7 @@ async def translate_text(text: str, target_lang_name: str) -> str:
                 {
                     "role": "system",
                     "content": (
-                        f"You are a human translator for Discord chat. Translate into {target_lang_name} naturally, preserving tone, emotion, and meaning — not literal word-for-word. Adapt idioms to sound native. Keep names, emojis, @mentions, and game terms unchanged. For DE->FR: 'genießen'=apprecier, 'verlangen'=exiger. Output ONLY the translation."
+                        f"You are a human translator for Discord. Translate into {target_lang_name} naturally, preserving tone and meaning. Keep names, emojis, and game terms. Output only the translation."
                     )
                 },
                 {"role": "user", "content": text}
