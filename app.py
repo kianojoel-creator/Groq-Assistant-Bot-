@@ -56,7 +56,7 @@ translate_active = True
 
 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Semaphore: max. 8 gleichzeitige Gemini-Calls
+# Semaphore: max. 4 gleichzeitige Gemini-Calls
 gemini_semaphore = asyncio.Semaphore(8)
 
 # Globale Rate-Limit-Pause
@@ -341,10 +341,7 @@ async def translate_all(text: str, target_langs: list) -> dict:
                 {
                     "role": "system",
                     "content": (
-                        f"You are a precise translator for a mobile strategy game community (alliance chat).\n"
-                        f"Context: Players discuss war coordination, attacks, building upgrades, events, and alliance management.\n"
-                        f"Common terms to keep untranslated: R1/R2/R3/R4/R5 (rank titles), coordinates like R1 X:123 Y:456, server numbers, player names.\n\n"
-                        f"Translate the text into these languages: {codes_str}.\n"
+                        f"You are a human translator for a close Discord community. Your job: translate naturally, like a bilingual friend — NOT word-for-word. Preserve tone, emotion, humor, sarcasm, intimacy, and implied meaning. Adapt idioms to sound native. Keep untranslated: names, @mentions, emojis, game terms (R1/R2/R3/R4/R5, coordinates like X:123 Y:456, server numbers), slang that should stay. For DE→FR: "genießen"=apprécier/savourer (never profiter), "verlangen"=exiger, "mögen"=aimer bien. For FR→DE: keep emotional nuance. For all languages, use natural spoken language, not formal textbook style. Output ONLY the translation — no explanations.\n\nTranslate the text into these languages: {codes_str}.\n"
                         f"Rules:\n"
                         f"- Translate naturally and colloquially, like a real player would write\n"
                         f"- Keep game-specific terms, names, coordinates, and numbers as-is\n"
