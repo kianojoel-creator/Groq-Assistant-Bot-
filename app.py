@@ -36,9 +36,8 @@ LOGO_URL = (
 )
 
 GEMINI_MODELS = [
-    "gemini-2.5-flash-lite",
-    "gemini-3.1-flash-lite-preview",
     "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
     "gemini-3-flash-preview",
 ]
 GEMINI_MODEL = GEMINI_MODELS[0]  # für Kompatibilität
@@ -57,8 +56,8 @@ translate_active = True
 
 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Semaphore: max. 4 gleichzeitige Gemini-Calls
-gemini_semaphore = asyncio.Semaphore(4)
+# Semaphore: max. 8 gleichzeitige Gemini-Calls
+gemini_semaphore = asyncio.Semaphore(8)
 
 # Globale Rate-Limit-Pause
 _gemini_rate_limit_until: float = 0.0
@@ -261,66 +260,55 @@ def _script_detect(text: str) -> str | None:
 
 # Nur für lateinische Texte deren Sprache unklar ist
 async def detect_language_llm(text: str) -> str:
-    """Lokale Erkennung – kein LLM Call mehr."""
+    """Lokale Erkennung – kein LLM Call, optimiert für kurze DE/FR Sätze."""
     stripped = text.strip()
-    if not stripped or len(stripped) < 3:
+    if not stripped or len(stripped) < 2:
         return "OTHER"
-    # Script detection
-    if any('\u0400' <= c <= '\u04FF' for c in stripped):
-        return "RU"
-    if any('\u3040' <= c <= '\u30FF' for c in stripped):
-        return "JA"
-    if any('\u4E00' <= c <= '\u9FFF' for c in stripped):
-        return "ZH"
-    # simple heuristic – nie OTHER
-    t = stripped.lower()
-    if any(w in t for w in [' der ', ' die ', ' das ', ' und ', ' ich bin ']):
+    
+    # Neutral / Emojis → ignorieren
+    if stripped.lower() in _NEUTRAL:
+        return "OTHER"
+
+    # 1. Script-Erkennung für nicht-lateinische Sprachen
+    script = _script_detect(stripped)
+    if script:
+        return script
+
+    t = f" {stripped.lower()} "  # Padding für Wortgrenzen
+
+    # 2. Kurze Texte (<20 Zeichen): harte Heuristik für DE/FR
+    # Das fixt "Ne bin da", "Was sagst du nicht", etc.
+    if len(stripped) < 20:
+        de_markers = [' ich ', ' bin ', ' da ', ' ne ', ' ja ', ' nein ', ' was ', ' du ', ' nicht ', ' mal ', ' hab ', ' habe ', ' ist ', ' ein ', ' der ', ' die ', ' das ', ' und ']
+        fr_markers = [' je ', ' suis ', ' pas ', ' oui ', ' non ', ' tu ', ' vous ', ' est ', ' le ', ' la ', ' et ', ' pour ', ' quoi ']
+        
+        # Zähle Treffer
+        de_hits = sum(1 for w in de_markers if w in t)
+        fr_hits = sum(1 for w in fr_markers if w in t)
+        
+        if de_hits > 0 and de_hits >= fr_hits:
+            return "DE"
+        if fr_hits > 0 and fr_hits > de_hits:
+            return "FR"
+        # Wenn nichts passt, aber Text sieht deutsch aus (Umlaute)
+        if any(c in stripped for c in 'äöüßÄÖÜ'):
+            return "DE"
+
+    # 3. Normale Heuristik für längere Texte
+    if any(w in t for w in [' der ', ' die ', ' das ', ' und ', ' ich ', ' nicht ', ' ist ', ' ein ', ' zu ']):
         return "DE"
-    if any(w in t for w in [' o ', ' que ', ' para ', ' com ', ' voce ']):
-        return "PT"
-    if any(w in t for w in [' le ', ' la ', ' et ', ' vous ']):
+    if any(w in t for w in [' le ', ' la ', ' les ', ' et ', ' vous ', ' je ', ' suis ', ' pas ']):
         return "FR"
-    if any(w in t for w in [' el ', ' la ', ' y ', ' que ']):
+    if any(w in t for w in [' o ', ' que ', ' para ', ' com ', ' você ', ' voce ', ' não ', ' nao ']):
+        return "PT"
+    if any(w in t for w in [' el ', ' la ', ' y ', ' que ', ' para ', ' con ']):
         return "ES"
+    if any(w in t for w in [' the ', ' and ', ' you ', ' is ', ' are ', ' i am ', ' not ']):
+        return "EN"
+
+    # 4. Fallback: bei lateinischer Schrift ohne Treffer → EN statt OTHER
+    # (verhindert dass wir Nachrichten komplett skippen)
     return "EN"
-
-    try:
-        result = await gemini_call(
-            model=GEMINI_MODEL,
-            temperature=0.0,
-            max_tokens=5,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Detect the language. Reply ONLY with the ISO 639-1 code in uppercase "
-                        "(DE, FR, PT, EN, ES, IT, TR, PL, NL). "
-                        "If neutral/unclear reply: OTHER. No explanation."
-                    )
-                },
-                {"role": "user", "content": stripped[:200]}
-            ]
-        )
-        result = result.upper().strip()
-        if result.startswith("PT"):
-            lang = "PT"
-        elif re.match(r"^[A-Z]{2}$", result):
-            lang = result
-        else:
-            m = re.search(r"\b([A-Z]{2})\b", result)
-            lang = m.group(1) if m else "OTHER"
-
-        known = {"DE","FR","PT","EN","ES","IT","TR","PL","NL","OTHER"}
-        if lang in known:
-            lang_cache[key] = lang
-            if len(lang_cache) > 800:
-                for k in list(lang_cache.keys())[:200]:
-                    del lang_cache[k]
-        return lang
-
-    except Exception as e:
-        log.error(f"Spracherkennungs-Fehler: {e}")
-        return "OTHER"
 
 
 # ────────────────────────────────────────────────
