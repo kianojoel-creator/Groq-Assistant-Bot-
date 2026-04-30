@@ -93,7 +93,6 @@ async def gemini_call(model: str, messages: list, temperature: float = 0.1,
     Führt einen Gemini-API-Call asynchron aus mit automatischem Modell-Fallback.
     messages: OpenAI-kompatibles Format [{"role": "system"/"user", "content": "..."}]
     """
-    global _gemini_rate_limit_until
     loop = asyncio.get_event_loop()
 
     # System-Prompt und User-Messages trennen
@@ -143,20 +142,14 @@ async def gemini_call(model: str, messages: list, temperature: float = 0.1,
 
         wait = 4
         for attempt in range(retries):
-            now = asyncio.get_event_loop().time()
-            pause = _gemini_rate_limit_until - now
-            if pause > 0:
-                log.info(f"Rate-Limit-Pause: warte {pause:.1f}s")
-                await asyncio.sleep(pause)
-
             async with gemini_semaphore:
                 try:
                     resp = await loop.run_in_executor(
                         None,
-                        lambda: gemini_client.models.generate_content(
-                            model=model_name,
-                            contents=contents,
-                            config=config,
+                        lambda m=model_name, c=contents, cfg=config: gemini_client.models.generate_content(
+                            model=m,
+                            contents=c,
+                            config=cfg,
                         )
                     )
                     if resp.usage_metadata:
@@ -175,7 +168,6 @@ async def gemini_call(model: str, messages: list, temperature: float = 0.1,
                     err = str(e)
                     last_error = err
                     if "429" in err or "quota" in err.lower() or "rate" in err.lower():
-                        _gemini_rate_limit_until = asyncio.get_event_loop().time() + wait
                         log.warning(f"{model_name} Rate-Limit (Versuch {attempt+1}/{retries}) – warte {wait}s")
                         await asyncio.sleep(wait)
                         wait = min(wait * 2, 60)
@@ -341,14 +333,16 @@ async def translate_all(text: str, target_langs: list) -> dict:
                 {
                     "role": "system",
                     "content": (
-                        f"You are a human translator for Discord. Translate naturally like a bilingual friend, not word for word. Preserve tone, emotion, humor, and intimacy. Adapt idioms to sound native. Keep names, mentions, emojis, and game terms unchanged. Use natural spoken language.\n\n"
-                        f"Translate into: {codes_str}.\n"
-                        f"Rules:\n"
-                        f"- Translate naturally and colloquially, like a real player would write\n"
-                        f"- Keep game-specific terms, names, coordinates, and numbers as-is\n"
-                        f"- If a word is unclear, choose the most natural game-chat interpretation\n"
-                        f"- Do NOT add explanations, notes, or markdown\n"
-                        f"- Reply ONLY with a valid JSON object, no extra text before or after:\n"
+                        f"You are a professional translator. Translate the text accurately and completely.\n"
+                        f"Context: Discord chat in a mobile strategy game alliance (Mecha Fire).\n\n"
+                        f"Target languages: {codes_str}.\n\n"
+                        f"RULES:\n"
+                        f"1. Translate the exact meaning — do NOT change, add, or omit anything\n"
+                        f"2. Match the original tone exactly (humor, urgency, sarcasm, affection)\n"
+                        f"3. Never translate: player names, @mentions, R1/R2/R3/R4/R5, coordinates, alliance names, game-specific abbreviations\n"
+                        f"4. Keep emojis exactly as-is\n"
+                        f"5. Each language field MUST be in that language — DE field must be German, FR must be French, etc.\n"
+                        f"6. Output ONLY this JSON, no markdown, no extra text:\n"
                         f"{{{json_keys}}}"
                     )
                 },
@@ -356,7 +350,6 @@ async def translate_all(text: str, target_langs: list) -> dict:
             ]
         )
 
-        # JSON parsen — robuster als Regex, löst das Chinesisch-Komma-Problem
         import json as _json
         clean = result.strip()
         if clean.startswith("```"):
@@ -367,10 +360,54 @@ async def translate_all(text: str, target_langs: list) -> dict:
 
         parsed = _json.loads(clean)
         translations = {}
+        max_len = max(len(text) * 6, 500)
+        original_words = set(re.sub(r'[^\w\s]', '', text.lower()).split())
+
+        # Englische Marker-Wörter — wenn diese in DE/FR/PT/ES auftauchen ist es falsch
+        en_markers = {"the","is","are","she","he","they","needs","want","yeah","most","of","all",
+                      "need","sleep","and","but","for","with","that","this","have","has","was","were"}
+
         for code in codes:
             val = parsed.get(code, "").strip()
-            if val and val.lower() != text.lower():
-                translations[code] = val
+            if not val:
+                continue
+
+            # Identisch mit Original
+            if val.lower() == text.lower():
+                log.warning(f"Übersetzung identisch mit Original ({code}) — verworfen")
+                continue
+
+            # Zu ähnlich (>70% Wortüberschneidung)
+            if len(original_words) >= 3:
+                val_words = set(re.sub(r'[^\w\s]', '', val.lower()).split())
+                if len(original_words) > 0:
+                    overlap = len(original_words & val_words) / len(original_words)
+                    if overlap > 0.70:
+                        log.warning(f"Übersetzung zu ähnlich ({code}): {overlap:.0%} — verworfen")
+                        continue
+
+            # Englischen Text in nicht-englischen Feldern erkennen
+            if code in ("DE", "FR", "PT", "ES", "RU", "JA", "ZH", "KO"):
+                val_word_set = set(val.lower().split())
+                en_hits = len(val_word_set & en_markers)
+                total_words = len(val_word_set)
+                if total_words > 0 and en_hits / total_words > 0.35:
+                    log.warning(f"Englischer Text im {code}-Feld erkannt ({en_hits}/{total_words} EN-Wörter) — verworfen")
+                    continue
+
+            # Loop-Erkennung
+            words = val.split()
+            if words:
+                most_common = max(set(words), key=words.count)
+                if words.count(most_common) > 15:
+                    log.warning(f"Loop erkannt ({code}): '{most_common}' x{words.count(most_common)} — verworfen")
+                    continue
+
+            # Längen-Check
+            if len(val) > max_len:
+                val = val[:max_len]
+
+            translations[code] = val
         return translations
 
     except Exception as e:
@@ -389,7 +426,7 @@ async def translate_text(text: str, target_lang_name: str) -> str:
                 {
                     "role": "system",
                     "content": (
-                        f"You are a human translator for Discord. Translate into {target_lang_name} naturally, preserving tone and meaning. Keep names, emojis, and game terms. Output only the translation."
+                        f"You are a professional translator. Translate the text into {target_lang_name} accurately. Keep the exact meaning and tone. Never translate: player names, @mentions, R1-R5, coordinates. Keep emojis as-is. Output ONLY the translation, nothing else."
                     )
                 },
                 {"role": "user", "content": text}
