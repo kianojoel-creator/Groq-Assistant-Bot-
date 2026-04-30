@@ -333,16 +333,21 @@ async def translate_all(text: str, target_langs: list) -> dict:
                 {
                     "role": "system",
                     "content": (
-                        f"You are a professional translator. Translate the text accurately and completely.\n"
-                        f"Context: Discord chat in a mobile strategy game alliance (Mecha Fire).\n\n"
+                        f"You are a professional translator specializing in informal chat and colloquial language.\n"
+                        f"Context: Discord chat in a multilingual gaming community. Messages are casual, emotional, and often use slang or endearments.\n\n"
                         f"Target languages: {codes_str}.\n\n"
                         f"RULES:\n"
                         f"1. Translate the exact meaning — do NOT change, add, or omit anything\n"
-                        f"2. Match the original tone exactly (humor, urgency, sarcasm, affection)\n"
-                        f"3. Never translate: player names, @mentions, R1/R2/R3/R4/R5, coordinates, alliance names, game-specific abbreviations\n"
-                        f"4. Keep emojis exactly as-is\n"
-                        f"5. Each language field MUST be in that language — DE field must be German, FR must be French, etc.\n"
-                        f"6. Output ONLY this JSON, no markdown, no extra text:\n"
+                        f"2. Match the original tone exactly (humor, sarcasm, affection, frustration)\n"
+                        f"3. German endearment words used as forms of address must be translated as endearments:\n"
+                        f"   'süße/süßer' = ma chérie/mon chéri (FR), sweetie/honey (EN)\n"
+                        f"   'schatz' = chéri/chérie (FR), honey/darling (EN)\n"
+                        f"   'liebe/r' = cher/chère (FR), dear (EN)\n"
+                        f"   'maus' = ma puce (FR), sweetie (EN)\n"
+                        f"4. Never translate: player names, @mentions, R1/R2/R3/R4/R5, coordinates, alliance names\n"
+                        f"5. Keep emojis exactly as-is\n"
+                        f"6. Each language field MUST be in that language — DE must be German, FR must be French, EN must be English\n"
+                        f"7. Output ONLY this JSON, no markdown, no extra text:\n"
                         f"{{{json_keys}}}"
                     )
                 },
@@ -1066,26 +1071,24 @@ async def on_message(message: discord.Message):
         else:
             active_langs = get_active_languages()  # Globale Einstellungen
 
-        # Haupt-Bot: feste Zielsprachen DE+FR, Rest zuschaltbar
-        # PT/EN/JA/ZH/KO werden vom Übersetzer-Bot übernommen
+        # Haupt-Bot: feste Zielsprachen DE+FR+EN, Rest zuschaltbar
         ALL_LANGS = [
             ("DE", "German",               "🇩🇪 Deutsch"),
             ("FR", "French",               "🇫🇷 Français"),
-            ("PT", "Brazilian Portuguese", "🇧🇷 Português"),
             ("EN", "English",              "🇬🇧 English"),
+            ("PT", "Brazilian Portuguese", "🇧🇷 Português"),
             ("JA", "Japanese",             "🇯🇵 日本語"),
             ("ZH", "Chinese",              "🇨🇳 中文"),
             ("KO", "Korean",               "🇰🇷 한국어"),
             ("ES", "Spanish",              "🇪🇸 Español"),
-            ("IT", "Italian",              "🇮🇹 Italiano"),
             ("RU", "Russian",              "🇷🇺 Русский"),
-            ("AR", "Arabic",               "🇸🇦 العربية"),
-            ("TR", "Turkish",              "🇹🇷 Türkçe"),
         ]
 
-        # Haupt-Bot übersetzt NUR in seine aktiven Sprachen
-        # Nachrichten die bereits DE oder FR sind → auch übersetzen
-        # Nachrichten in PT/EN/JA/ZH/KO → Übersetzer-Bot macht das
+        # DE, FR, EN sind immer aktiv — egal was in MongoDB steht
+        FIXED_LANGS = {"DE", "FR", "EN"}
+        active_langs = active_langs | FIXED_LANGS
+
+        # Nachrichten in der erkannten Sprache nicht zurückübersetzen
         target_langs = [
             t for t in ALL_LANGS
             if t[0] != lang and t[0] in active_langs
